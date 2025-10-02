@@ -1,0 +1,12 @@
+{
+  "Name": "AI Companion",
+  "Author": "The Real Nunu",
+  "Punchline": "Isolated AI chat companion window.",
+  "Description": "Private AI chat window. No chat hooks. Persona via persona.txt.",
+  "RepoUrl": "https://github.com/insanityiskey85-create/NunuAICompanion5",
+  "DalamudApiLevel": 13,
+  "ApplicableVersion": "any",
+  "Tags": [ "AI", "chat", "companion" ],
+  "Changelog": "Initial build with local Dalamud path and VS solution.",
+  "Version": "0.1.0"
+}

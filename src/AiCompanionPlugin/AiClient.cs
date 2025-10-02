@@ -68,7 +68,7 @@ public sealed class AiClient : IDisposable
             resp.EnsureSuccessStatusCode();
             await foreach (var piece in ReadOpenAIStreamAsync(resp, token)) yield return piece;
         }
-        else // Ollama: streaming is JSON lines but differs; safest: do non-stream and yield once
+        else // Ollama: streaming differs; safest path is non-stream and yield once
         {
             var text = await ChatOnceAsync(history, userInput, token).ConfigureAwait(false);
             if (!string.IsNullOrEmpty(text))
@@ -138,8 +138,7 @@ public sealed class AiClient : IDisposable
         try
         {
             var (kind, url) = await EnsureResolvedAsync(token).ConfigureAwait(false);
-            // Tiny no-op call: send a super short prompt and discard
-            var result = await ChatOnceAsync(new List<ChatMessage>(), "ping", token).ConfigureAwait(false);
+            var _ = await ChatOnceAsync(new List<ChatMessage>(), "ping", token).ConfigureAwait(false);
             var kindName = kind == BackendKind.OpenAI ? "OpenAI-compatible" : "Ollama";
             return (true, $"Connected: {kindName} at {url}");
         }
@@ -184,6 +183,7 @@ public sealed class AiClient : IDisposable
             var payload = line.Substring(5).Trim();
             if (payload == "[DONE]") yield break;
 
+            string? toEmit = null;
             try
             {
                 using var doc = JsonDocument.Parse(payload);
@@ -192,13 +192,16 @@ public sealed class AiClient : IDisposable
                 {
                     var tokenText = content.GetString();
                     if (!string.IsNullOrEmpty(tokenText))
-                        yield return tokenText;
+                        toEmit = tokenText;
                 }
             }
             catch
             {
                 // ignore partials
             }
+
+            if (toEmit is not null)
+                yield return toEmit;
         }
     }
 

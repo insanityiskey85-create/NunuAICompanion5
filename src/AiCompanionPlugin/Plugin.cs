@@ -22,63 +22,66 @@ public sealed class Plugin : IDalamudPlugin
     private readonly Configuration config;
     private readonly PersonaManager personaManager;
     private readonly MemoryManager memoryManager;
+    private readonly ChronicleManager chronicleManager;
     private readonly AiClient aiClient;
     private readonly ChatWindow chatWindow;
     private readonly SettingsWindow settingsWindow;
+    private readonly ChronicleWindow chronicleWindow;
 
-    private const string Command = "/aic";
+    private const string CommandChat = "/aic";
+    private const string CommandChron = "/aiclog";
 
     public Plugin()
     {
         Instance = this;
 
-        // Load config
-        this.config = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
-        this.config.Initialize(PluginInterface);
+        config = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
+        config.Initialize(PluginInterface);
 
-        // Services
-        this.personaManager = new PersonaManager(PluginInterface, PluginLog, config);
-        this.memoryManager = new MemoryManager(PluginInterface, PluginLog, config);
-        this.aiClient = new AiClient(PluginLog, config, personaManager);
+        personaManager = new PersonaManager(PluginInterface, PluginLog, config);
+        memoryManager = new MemoryManager(PluginInterface, PluginLog, config);
+        chronicleManager = new ChronicleManager(PluginInterface, PluginLog, config);
+        aiClient = new AiClient(PluginLog, config, personaManager);
 
-        // UI windows
-        this.chatWindow = new ChatWindow(PluginLog, aiClient, config, personaManager, memoryManager);
-        this.settingsWindow = new SettingsWindow(config, personaManager, memoryManager);
+        chatWindow = new ChatWindow(PluginLog, aiClient, config, personaManager, memoryManager, chronicleManager);
+        settingsWindow = new SettingsWindow(config, personaManager, memoryManager, chronicleManager);
+        chronicleWindow = new ChronicleWindow(config, chronicleManager);
 
         windowSystem.AddWindow(chatWindow);
         windowSystem.AddWindow(settingsWindow);
+        windowSystem.AddWindow(chronicleWindow);
 
-        // Hooks
         PluginInterface.UiBuilder.Draw += DrawUi;
         PluginInterface.UiBuilder.OpenConfigUi += ToggleSettings;
 
-        // Command
-        CommandManager.AddHandler(Command, new CommandInfo(OnCommand)
-        {
-            HelpMessage = "Open AI Companion chat window"
-        });
+        CommandManager.AddHandler(CommandChat, new CommandInfo(OnChat) { HelpMessage = "Open AI Companion chat window" });
+        CommandManager.AddHandler(CommandChron, new CommandInfo(OnChron) { HelpMessage = "Open AI Nunu Chronicle window" });
     }
 
-    private void OnCommand(string command, string args) => chatWindow.IsOpen = true;
+    private void OnChat(string command, string args) => chatWindow.IsOpen = true;
+    private void OnChron(string command, string args) => chronicleWindow.IsOpen = true;
     private void ToggleSettings() => settingsWindow.IsOpen = true;
     private void DrawUi() => windowSystem.Draw();
 
-    // Helper so other classes can open settings without touching the UiBuilder event.
-    public static void OpenSettingsWindow()
-    {
-        if (Instance != null)
-            Instance.settingsWindow.IsOpen = true;
-    }
+    public static void OpenSettingsWindow() => Instance?.settingsWindow.Open();
+    public static void OpenChronicleWindow() => Instance?.chronicleWindow.Open();
 
     public void Dispose()
     {
-        CommandManager.RemoveHandler(Command);
+        CommandManager.RemoveHandler(CommandChat);
+        CommandManager.RemoveHandler(CommandChron);
         PluginInterface.UiBuilder.Draw -= DrawUi;
         PluginInterface.UiBuilder.OpenConfigUi -= ToggleSettings;
         windowSystem.RemoveAllWindows();
         aiClient.Dispose();
         personaManager.Dispose();
         memoryManager.Dispose();
+        chronicleManager.Dispose();
         Instance = null;
     }
+}
+
+file static class WindowExt
+{
+    public static void Open(this Window w) => w.IsOpen = true;
 }

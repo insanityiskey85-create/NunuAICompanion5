@@ -16,16 +16,17 @@ public sealed class ChatWindow : Window
     private readonly Configuration config;
     private readonly PersonaManager persona;
     private readonly MemoryManager memory;
+    private readonly ChronicleManager chronicle;
 
     private string input = string.Empty;
     private readonly List<ChatMessage> history = new();
     private readonly StringBuilder responseBuffer = new();
     private CancellationTokenSource? cts;
 
-    public ChatWindow(IPluginLog log, AiClient client, Configuration config, PersonaManager persona, MemoryManager memory)
+    public ChatWindow(IPluginLog log, AiClient client, Configuration config, PersonaManager persona, MemoryManager memory, ChronicleManager chronicle)
         : base("AI Companion", ImGuiWindowFlags.None)
     {
-        this.log = log; this.client = client; this.config = config; this.persona = persona; this.memory = memory;
+        this.log = log; this.client = client; this.config = config; this.persona = persona; this.memory = memory; this.chronicle = chronicle;
         SizeConstraints = new WindowSizeConstraints
         {
             MinimumSize = new Vector2(480, 380),
@@ -37,14 +38,12 @@ public sealed class ChatWindow : Window
     {
         var pops = ThemePalette.ApplyTheme(config.ThemeName ?? "Eorzean Night");
 
-        // Transcript area
         ImGui.BeginChild("chat-scroll", new Vector2(0, -95), true);
         foreach (var m in history)
         {
             var label = m.Role.Equals("assistant", StringComparison.OrdinalIgnoreCase)
                 ? (string.IsNullOrWhiteSpace(config.AiDisplayName) ? "AI Nunu" : config.AiDisplayName)
                 : m.Role.ToUpperInvariant();
-
             ImGui.PushTextWrapPos();
             ImGui.TextUnformatted($"{label}: {m.Content}");
             ImGui.PopTextWrapPos();
@@ -60,26 +59,25 @@ public sealed class ChatWindow : Window
         }
         ImGui.EndChild();
 
-        // Input & controls
-        ImGui.InputTextMultiline("##input", ref input, 8000, new Vector2(-150, 80));
+        ImGui.InputTextMultiline("##input", ref input, 8000, new Vector2(-180, 80));
         ImGui.SameLine();
-        if (ImGui.BeginChild("controls", new Vector2(140, 80)))
+        if (ImGui.BeginChild("controls", new Vector2(170, 80)))
         {
             var sending = cts != null;
             var sendDisabled = sending || string.IsNullOrWhiteSpace(input);
-            if (ImGui.Button(sending ? "Sending" : "Send", new Vector2(130, 36)) && !sendDisabled)
+            if (ImGui.Button(sending ? "Sending" : "Send", new Vector2(160, 36)) && !sendDisabled)
             {
                 _ = SendAsync();
             }
 
             if (sending)
             {
-                if (ImGui.Button("Cancel", new Vector2(130, 36)))
+                if (ImGui.Button("Cancel", new Vector2(160, 36)))
                     cts?.Cancel();
             }
             else
             {
-                if (ImGui.Button("Clear", new Vector2(130, 36)))
+                if (ImGui.Button("Clear", new Vector2(160, 36)))
                 {
                     history.Clear();
                     responseBuffer.Clear();
@@ -88,14 +86,12 @@ public sealed class ChatWindow : Window
             ImGui.EndChild();
         }
 
-        // Footer
         if (ImGui.BeginChild("footer", new Vector2(0, 0)))
         {
             ImGui.TextDisabled($"Model: {config.Model} | Streaming: {config.StreamResponses} | Theme: {config.ThemeName}");
-            if (ImGui.Button("Settings"))
-            {
-                Plugin.OpenSettingsWindow();
-            }
+            if (ImGui.Button("Settings")) Plugin.OpenSettingsWindow();
+            ImGui.SameLine();
+            if (ImGui.Button("Chronicle")) Plugin.OpenChronicleWindow();
             ImGui.SameLine();
             if (ImGui.Button("Save Last As Memory"))
             {
@@ -108,7 +104,6 @@ public sealed class ChatWindow : Window
             }
             ImGui.SameLine();
             ImGui.TextDisabled("Private window only.");
-
             ImGui.EndChild();
         }
 
@@ -120,7 +115,6 @@ public sealed class ChatWindow : Window
         var text = input.Trim();
         if (string.IsNullOrWhiteSpace(text)) return;
 
-        // Push user message
         var userMsg = new ChatMessage("user", text);
         history.Add(userMsg);
         if (config.EnableMemory && config.AutoSaveMemory) memory.Add(userMsg.Role, userMsg.Content);
@@ -134,10 +128,8 @@ public sealed class ChatWindow : Window
             if (config.StreamResponses)
             {
                 await foreach (var token in client.ChatStreamAsync(history, string.Empty, cts.Token))
-                {
                     responseBuffer.Append(token);
-                }
-                // finalize assistant message
+
                 var full = responseBuffer.ToString();
                 var aiMsg = new ChatMessage("assistant", full);
                 history.Add(aiMsg);
@@ -145,6 +137,9 @@ public sealed class ChatWindow : Window
 
                 if (config.EnableMemory && config.AutoSaveMemory)
                     memory.Add(aiMsg.Role, aiMsg.Content);
+
+                if (config.EnableChronicle && config.ChronicleAutoAppend)
+                    chronicle.AppendExchange(userMsg.Content, aiMsg.Content, config.Model);
             }
             else
             {
@@ -154,6 +149,9 @@ public sealed class ChatWindow : Window
 
                 if (config.EnableMemory && config.AutoSaveMemory)
                     memory.Add(aiMsg.Role, aiMsg.Content);
+
+                if (config.EnableChronicle && config.ChronicleAutoAppend)
+                    chronicle.AppendExchange(userMsg.Content, aiMsg.Content, config.Model);
             }
         }
         catch (System.OperationCanceledException)

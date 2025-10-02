@@ -1,4 +1,5 @@
 ﻿using System;
+using System.IO;
 using System.Linq;
 using Dalamud.Interface.Windowing;
 
@@ -44,10 +45,7 @@ public sealed class SettingsWindow : Window
 
         // Display name
         var aiName = config.AiDisplayName ?? "AI Nunu";
-        if (ImGui.InputText("AI Display Name", ref aiName, 64))
-        {
-            config.AiDisplayName = aiName;
-        }
+        if (ImGui.InputText("AI Display Name", ref aiName, 64)) { config.AiDisplayName = aiName; }
 
         ImGui.Spacing();
 
@@ -65,12 +63,81 @@ public sealed class SettingsWindow : Window
             {
                 bool selected = i == idx;
                 if (ImGui.Selectable(keys[i], selected))
-                {
                     config.ThemeName = keys[i];
-                }
                 if (selected) ImGui.SetItemDefaultFocus();
             }
             ImGui.EndCombo();
+        }
+
+        ImGui.Spacing();
+
+        // PERSONA
+        ImGui.Text("Persona");
+        ImGui.Separator();
+        var rel = config.PersonaFileRelative ?? "persona.txt";
+        if (ImGui.InputText("persona.txt (relative)", ref rel, 260))
+        {
+            config.PersonaFileRelative = rel;
+        }
+
+        // Show absolute path + quick actions
+        var abs = Plugin.PluginInterface != null
+            ? config.GetPersonaAbsolutePath(Plugin.PluginInterface)
+            : string.Empty;
+
+        if (!string.IsNullOrEmpty(abs))
+        {
+            ImGui.TextDisabled(abs);
+            ImGui.SameLine();
+            if (ImGui.Button("Open File"))
+            {
+                try
+                {
+                    if (!File.Exists(abs))
+                    {
+                        Directory.CreateDirectory(Path.GetDirectoryName(abs)!);
+                        File.WriteAllText(abs,
+                            "You are AI Nunu, a helpful, strictly isolated personal AI companion.\n" +
+                            "Stay within this private window. Do not read or write to game chat.\n" +
+                            "Style: concise, kind, attentive to the user's goals.\n");
+                    }
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = abs,
+                        UseShellExecute = true,
+                        Verb = "open"
+                    });
+                }
+                catch { }
+            }
+            ImGui.SameLine();
+            if (ImGui.Button("Open Folder"))
+            {
+                try
+                {
+                    var dir = Path.GetDirectoryName(abs)!;
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = dir,
+                        UseShellExecute = true,
+                        Verb = "open"
+                    });
+                }
+                catch { }
+            }
+            ImGui.SameLine();
+            if (ImGui.Button("Reload Persona"))
+            {
+                try
+                {
+                    persona.Reload();
+                    status = "Persona reloaded.";
+                }
+                catch
+                {
+                    status = "Failed to reload persona.";
+                }
+            }
         }
 
         ImGui.Spacing();
@@ -87,31 +154,12 @@ public sealed class SettingsWindow : Window
         var memPath = config.MemoriesFileRelative;
         if (ImGui.InputText("memories.json (relative)", ref memPath, 256)) { config.MemoriesFileRelative = memPath; }
 
-        if (ImGui.Button("Open Config Folder"))
-        {
-            try
-            {
-                var dir = Plugin.PluginInterface.GetPluginConfigDirectory();
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = dir,
-                    UseShellExecute = true,
-                    Verb = "open"
-                });
-            }
-            catch { }
-        }
-        ImGui.SameLine();
         if (ImGui.Button("Save Memories Now")) { memory.Save(); status = "Memories saved."; }
         ImGui.SameLine();
         if (ImGui.Button("Clear Memories")) { memory.Clear(); status = "Memories cleared."; }
 
         ImGui.Spacing();
-        if (ImGui.Button("Save Settings"))
-        {
-            config.Save();
-            status = "Settings saved.";
-        }
+        if (ImGui.Button("Save Settings")) { config.Save(); status = "Settings saved."; }
         if (!string.IsNullOrEmpty(status))
         {
             ImGui.SameLine();

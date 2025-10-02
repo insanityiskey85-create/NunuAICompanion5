@@ -16,7 +16,7 @@ public sealed class PersonaManager : System.IDisposable
         : config.SystemPromptOverride;
 
     public static readonly string DefaultSystemPrompt =
-        "You are a personal, isolated FFXIV companion.\n" +
+        "You are AI Nunu, a helpful, strictly isolated FFXIV companion.\n" +
         "You exist only in this private window. Do not read or write to game chat.\n" +
         "Be concise, kind, and focused on the player's goals.\n";
 
@@ -33,7 +33,7 @@ public sealed class PersonaManager : System.IDisposable
         if (!File.Exists(path))
         {
             File.WriteAllText(path,
-                "You are a helpful, strictly isolated personal AI companion.\n" +
+                "You are AI Nunu, a helpful, strictly isolated personal AI companion.\n" +
                 "Stay within this private window. Do not read or write to game chat.\n" +
                 "Style: concise, kind, and attentive to the user's goals.\n");
             log.Info($"Created default persona at {path}");
@@ -48,7 +48,7 @@ public sealed class PersonaManager : System.IDisposable
         watcher = new FileSystemWatcher(dir)
         {
             NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.FileName,
-            Filter = System.IO.Path.GetFileName(config.PersonaFileRelative),
+            Filter = Path.GetFileName(config.PersonaFileRelative),
             EnableRaisingEvents = true,
         };
         watcher.Changed += OnPersonaChanged;
@@ -69,6 +69,13 @@ public sealed class PersonaManager : System.IDisposable
         config.SystemPromptOverride = text;
         config.Save();
         log.Info("Persona reloaded.");
+    }
+
+    // << new: manual reload from Settings button >>
+    public void Reload()
+    {
+        var path = config.GetPersonaAbsolutePath(pi);
+        LoadPersona(path);
     }
 
     public void Dispose()

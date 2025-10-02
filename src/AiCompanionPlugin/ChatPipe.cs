@@ -210,4 +210,9 @@ public sealed class ChatPipe
             yield return seg;
         }
     }
+
+    internal async Task SendToPartyAsync(string text, CancellationToken token)
+    {
+        throw new NotImplementedException();
+    }
 }

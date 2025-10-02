@@ -1,4 +1,6 @@
-﻿using System.Numerics;
+﻿using System;
+using System.Threading;
+using System.Threading.Tasks;
 using Dalamud.Interface.Windowing;
 
 namespace AiCompanionPlugin;
@@ -7,12 +9,17 @@ public sealed class SettingsWindow : Window
 {
     private readonly Configuration config;
     private readonly PersonaManager persona;
+    private readonly AiClient client;
 
-    public SettingsWindow(Configuration config, PersonaManager persona)
+    private string testStatus = string.Empty;
+    private bool testing = false;
+
+    public SettingsWindow(Configuration config, PersonaManager persona, AiClient client)
         : base("AI Companion Settings", ImGuiWindowFlags.AlwaysAutoResize)
     {
         this.config = config;
         this.persona = persona;
+        this.client = client;
     }
 
     public override void Draw()
@@ -28,6 +35,26 @@ public sealed class SettingsWindow : Window
 
         var model = config.Model;
         if (ImGui.InputText("Model", ref model, 128)) { config.Model = model; config.Save(); }
+
+        ImGui.SameLine();
+        if (!testing)
+        {
+            if (ImGui.Button("Test Connection"))
+            {
+                _ = RunTestAsync();
+            }
+        }
+        else
+        {
+            ImGui.TextDisabled("Testing…");
+        }
+
+        if (!string.IsNullOrEmpty(testStatus))
+        {
+            ImGui.PushTextWrapPos();
+            ImGui.TextUnformatted(testStatus);
+            ImGui.PopTextWrapPos();
+        }
 
         ImGui.Spacing();
         ImGui.Text("Chat");
@@ -64,5 +91,25 @@ public sealed class SettingsWindow : Window
 
         ImGui.Spacing();
         ImGui.TextDisabled("No whitelist. No chat channel hooks. Private window only.");
+    }
+
+    private async Task RunTestAsync()
+    {
+        testing = true;
+        testStatus = "Pinging backend…";
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            var (ok, detail) = await client.TestConnectionAsync(cts.Token);
+            testStatus = ok ? $"✅ {detail}" : $"❌ {detail}";
+        }
+        catch (Exception ex)
+        {
+            testStatus = $"❌ Exception: {ex.Message}";
+        }
+        finally
+        {
+            testing = false;
+        }
     }
 }

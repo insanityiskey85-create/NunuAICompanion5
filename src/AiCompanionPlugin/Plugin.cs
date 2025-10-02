@@ -65,4 +65,9 @@ public sealed class Plugin : IDalamudPlugin
         aiClient.Dispose();
         personaManager.Dispose();
     }
+
+    internal static void OpenSettingsWindow()
+    {
+        throw new NotImplementedException();
+    }
 }

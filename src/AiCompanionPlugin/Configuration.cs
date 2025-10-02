@@ -1,13 +1,14 @@
 using Dalamud.Configuration;
 using Dalamud.Plugin;
 using System;
+using System.Collections.Generic;
 
 namespace AiCompanionPlugin;
 
 [Serializable]
 public sealed class Configuration : IPluginConfiguration
 {
-    public int Version { get; set; } = 4;
+    public int Version { get; set; } = 6;
 
     // Backend
     public string BackendBaseUrl { get; set; } = "http://127.0.0.1:11434";
@@ -40,6 +41,18 @@ public sealed class Configuration : IPluginConfiguration
     public int ChronicleMaxEntries { get; set; } = 1000;
     public string ChronicleFileRelative { get; set; } = "chronicle.json";
     public string ChronicleStyle { get; set; } = "Canon";
+
+    // Party Chat Pipe (outbound only)
+    public bool EnablePartyPipe { get; set; } = false;
+    public bool ConfirmBeforePartyPost { get; set; } = true;
+    public int PartyChunkSize { get; set; } = 440;
+    public int PartyPostDelayMs { get; set; } = 800;
+
+    // Party Listener (inbound)
+    public bool EnablePartyListener { get; set; } = false;
+    public string PartyTrigger { get; set; } = "!AI Nunu";
+    public List<string> PartyWhitelist { get; set; } = new() { "Your Name Here" }; // character names only
+    public bool PartyAutoReply { get; set; } = true; // automatically reply when triggered
 
     [NonSerialized] private IDalamudPluginInterface? pluginInterface;
     public void Initialize(IDalamudPluginInterface pi) => pluginInterface = pi;

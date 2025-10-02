@@ -1,6 +1,8 @@
 ﻿using System;
 using System.IO;
 using System.Linq;
+using System.Text;
+using Dalamud.Interface.Windowing;
 using Dalamud.Interface.Windowing;
 
 namespace AiCompanionPlugin;
@@ -14,6 +16,9 @@ public sealed class SettingsWindow : Window
 
     private string status = string.Empty;
 
+    // temp editor for whitelist
+    private string whitelistEdit = string.Empty;
+
     public SettingsWindow(Configuration config, PersonaManager persona, MemoryManager memory, ChronicleManager chronicle)
         : base("AI Companion Settings", ImGuiWindowFlags.AlwaysAutoResize)
     {
@@ -21,6 +26,8 @@ public sealed class SettingsWindow : Window
         this.persona = persona;
         this.memory = memory;
         this.chronicle = chronicle;
+
+        whitelistEdit = string.Join(Environment.NewLine, config.PartyWhitelist ?? new());
     }
 
     public override void Draw()
@@ -58,14 +65,12 @@ public sealed class SettingsWindow : Window
         var keys = ThemePalette.Presets.Keys.ToArray();
         int idx = Array.IndexOf(keys, currentTheme);
         if (idx < 0) idx = 0;
-
         if (ImGui.BeginCombo("Chat Theme", keys[idx]))
         {
             for (int i = 0; i < keys.Length; i++)
             {
                 bool selected = i == idx;
-                if (ImGui.Selectable(keys[i], selected))
-                    config.ThemeName = keys[i];
+                if (ImGui.Selectable(keys[i], selected)) config.ThemeName = keys[i];
                 if (selected) ImGui.SetItemDefaultFocus();
             }
             ImGui.EndCombo();
@@ -146,12 +151,46 @@ public sealed class SettingsWindow : Window
         if (ImGui.InputText("chronicle.json (relative)", ref chronPath, 256)) { config.ChronicleFileRelative = chronPath; }
         var style = config.ChronicleStyle ?? "Canon";
         if (ImGui.InputText("Style Tag", ref style, 64)) { config.ChronicleStyle = style; }
-
         if (ImGui.Button("Open Chronicle Window")) Plugin.OpenChronicleWindow();
         ImGui.SameLine();
         if (ImGui.Button("Save Chronicle Now")) { chronicle.Save(); status = "Chronicle saved."; }
         ImGui.SameLine();
         if (ImGui.Button("Clear Chronicle")) { chronicle.Clear(); status = "Chronicle cleared."; }
+
+        ImGui.Spacing();
+
+        // PARTY CHAT PIPE
+        ImGui.Text("Party Chat Pipe (Outbound)");
+        ImGui.Separator();
+        bool enablePipe = config.EnablePartyPipe;
+        if (ImGui.Checkbox("Enable Party Chat Posting (/p only)", ref enablePipe)) { config.EnablePartyPipe = enablePipe; }
+        bool confirm = config.ConfirmBeforePartyPost;
+        if (ImGui.Checkbox("Confirm before posting", ref confirm)) { config.ConfirmBeforePartyPost = confirm; }
+        int chunk = config.PartyChunkSize;
+        if (ImGui.SliderInt("Message Chunk Size", ref chunk, 100, 480)) { config.PartyChunkSize = chunk; }
+        int delay = config.PartyPostDelayMs;
+        if (ImGui.SliderInt("Delay Between Chunks (ms)", ref delay, 200, 2000)) { config.PartyPostDelayMs = delay; }
+
+        ImGui.Spacing();
+
+        // PARTY LISTENER (Inbound)
+        ImGui.Text("Party Listener (Inbound)");
+        ImGui.Separator();
+        bool listener = config.EnablePartyListener;
+        if (ImGui.Checkbox("Enable Party Listener (Party channel only)", ref listener)) { config.EnablePartyListener = listener; }
+        var trig = config.PartyTrigger ?? "!AI Nunu";
+        if (ImGui.InputText("Trigger", ref trig, 64)) { config.PartyTrigger = trig; }
+        bool autoReply = config.PartyAutoReply;
+        if (ImGui.Checkbox("Auto-reply when triggered", ref autoReply)) { config.PartyAutoReply = autoReply; }
+
+        ImGui.Text("Whitelist (one name per line, no @World):");
+        ImGui.InputTextMultiline("##whitelist", ref whitelistEdit, 8000, new System.Numerics.Vector2(400, 100));
+        if (ImGui.Button("Save Whitelist"))
+        {
+            var lines = whitelistEdit.Replace("\r\n", "\n").Split('\n').Select(s => s.Trim()).Where(s => s.Length > 0).ToList();
+            config.PartyWhitelist = lines;
+            status = $"Whitelist saved ({lines.Count} entries).";
+        }
 
         ImGui.Spacing();
 
@@ -162,6 +201,6 @@ public sealed class SettingsWindow : Window
         }
 
         ImGui.Spacing();
-        ImGui.TextDisabled("No whitelist. No chat channel hooks. Private window only.");
+        ImGui.TextDisabled("Listener scope: Party channel only. Triggers must start the message and sender must be on whitelist.");
     }
 }

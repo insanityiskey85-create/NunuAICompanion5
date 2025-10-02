@@ -17,16 +17,20 @@ public sealed class ChatWindow : Window
     private readonly PersonaManager persona;
     private readonly MemoryManager memory;
     private readonly ChronicleManager chronicle;
+    private readonly ChatPipe partyPipe;
 
     private string input = string.Empty;
     private readonly List<ChatMessage> history = new();
     private readonly StringBuilder responseBuffer = new();
     private CancellationTokenSource? cts;
 
-    public ChatWindow(IPluginLog log, AiClient client, Configuration config, PersonaManager persona, MemoryManager memory, ChronicleManager chronicle)
+    // modal state
+    private bool confirmPartyModal = false;
+
+    public ChatWindow(IPluginLog log, AiClient client, Configuration config, PersonaManager persona, MemoryManager memory, ChronicleManager chronicle, ChatPipe partyPipe)
         : base("AI Companion", ImGuiWindowFlags.None)
     {
-        this.log = log; this.client = client; this.config = config; this.persona = persona; this.memory = memory; this.chronicle = chronicle;
+        this.log = log; this.client = client; this.config = config; this.persona = persona; this.memory = memory; this.chronicle = chronicle; this.partyPipe = partyPipe;
         SizeConstraints = new WindowSizeConstraints
         {
             MinimumSize = new Vector2(480, 380),
@@ -38,7 +42,8 @@ public sealed class ChatWindow : Window
     {
         var pops = ThemePalette.ApplyTheme(config.ThemeName ?? "Eorzean Night");
 
-        ImGui.BeginChild("chat-scroll", new Vector2(0, -95), true);
+        // Transcript area
+        ImGui.BeginChild("chat-scroll", new Vector2(0, -120), true);
         foreach (var m in history)
         {
             var label = m.Role.Equals("assistant", StringComparison.OrdinalIgnoreCase)
@@ -59,25 +64,26 @@ public sealed class ChatWindow : Window
         }
         ImGui.EndChild();
 
-        ImGui.InputTextMultiline("##input", ref input, 8000, new Vector2(-180, 80));
+        // Input & controls
+        ImGui.InputTextMultiline("##input", ref input, 8000, new Vector2(-220, 80));
         ImGui.SameLine();
-        if (ImGui.BeginChild("controls", new Vector2(170, 80)))
+        if (ImGui.BeginChild("controls", new Vector2(210, 80)))
         {
             var sending = cts != null;
             var sendDisabled = sending || string.IsNullOrWhiteSpace(input);
-            if (ImGui.Button(sending ? "Sending" : "Send", new Vector2(160, 36)) && !sendDisabled)
+            if (ImGui.Button(sending ? "Sending" : "Send", new Vector2(200, 32)) && !sendDisabled)
             {
                 _ = SendAsync();
             }
 
             if (sending)
             {
-                if (ImGui.Button("Cancel", new Vector2(160, 36)))
+                if (ImGui.Button("Cancel", new Vector2(200, 32)))
                     cts?.Cancel();
             }
             else
             {
-                if (ImGui.Button("Clear", new Vector2(160, 36)))
+                if (ImGui.Button("Clear", new Vector2(200, 32)))
                 {
                     history.Clear();
                     responseBuffer.Clear();
@@ -86,12 +92,14 @@ public sealed class ChatWindow : Window
             ImGui.EndChild();
         }
 
+        // Footer row
         if (ImGui.BeginChild("footer", new Vector2(0, 0)))
         {
             ImGui.TextDisabled($"Model: {config.Model} | Streaming: {config.StreamResponses} | Theme: {config.ThemeName}");
             if (ImGui.Button("Settings")) Plugin.OpenSettingsWindow();
             ImGui.SameLine();
             if (ImGui.Button("Chronicle")) Plugin.OpenChronicleWindow();
+
             ImGui.SameLine();
             if (ImGui.Button("Save Last As Memory"))
             {
@@ -102,12 +110,81 @@ public sealed class ChatWindow : Window
                     if (!config.AutoSaveMemory) memory.Save();
                 }
             }
+
+            // Party send button (only assistant last)
             ImGui.SameLine();
-            ImGui.TextDisabled("Private window only.");
+            ImGui.BeginDisabled(!config.EnablePartyPipe || !HasLastAssistant(out _));
+            if (ImGui.Button("Party Post"))
+            {
+                if (HasLastAssistant(out var lastText))
+                {
+                    if (config.ConfirmBeforePartyPost)
+                    {
+                        confirmPartyModal = true;
+                        ImGui.OpenPopup("Confirm Party Post");
+                    }
+                    else
+                    {
+                        _ = SendLastAssistantToPartyAsync(lastText!);
+                    }
+                }
+            }
+            ImGui.EndDisabled();
+
+            ImGui.SameLine();
+            ImGui.TextDisabled("Private window only (no chat listeners).");
+
+            // Modal confirm
+            if (confirmPartyModal && ImGui.BeginPopupModal("Confirm Party Post", ref confirmPartyModal, ImGuiWindowFlags.AlwaysAutoResize))
+            {
+                ImGui.TextWrapped("Send the last AI Nunu reply to PARTY chat?\nOnly /p is used. No other channels will be touched.");
+                ImGui.Separator();
+                if (ImGui.Button("Send"))
+                {
+                    if (HasLastAssistant(out var last)) _ = SendLastAssistantToPartyAsync(last!);
+                    ImGui.CloseCurrentPopup();
+                    confirmPartyModal = false;
+                }
+                ImGui.SameLine();
+                if (ImGui.Button("Cancel"))
+                {
+                    ImGui.CloseCurrentPopup();
+                    confirmPartyModal = false;
+                }
+                ImGui.EndPopup();
+            }
+
             ImGui.EndChild();
         }
 
         ThemePalette.PopTheme(pops);
+    }
+
+    private bool HasLastAssistant(out string? text)
+    {
+        text = null;
+        for (int i = history.Count - 1; i >= 0; i--)
+        {
+            if (string.Equals(history[i].Role, "assistant", StringComparison.OrdinalIgnoreCase))
+            {
+                text = history[i].Content;
+                return !string.IsNullOrWhiteSpace(text);
+            }
+        }
+        return false;
+    }
+
+    private async Task SendLastAssistantToPartyAsync(string text)
+    {
+        try
+        {
+            using var ctsLocal = new CancellationTokenSource();
+            await partyPipe.SendToPartyAsync(text, ctsLocal.Token).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            log.Error(ex, "Party post failed");
+        }
     }
 
     private async Task SendAsync()

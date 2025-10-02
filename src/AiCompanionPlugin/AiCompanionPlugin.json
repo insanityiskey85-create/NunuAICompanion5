@@ -4,6 +4,7 @@
   "Punchline": "Isolated AI chat companion window.",
   "Description": "Private AI chat window. No chat hooks. Persona via persona.txt.",
   "RepoUrl": "https://github.com/insanityiskey85-create/NunuAICompanion5",
+  "IconUrl": "https://raw.githubusercontent.com/insanityiskey85-create/NunuAICompanion5/master/WOW.png",
   "DalamudApiLevel": 13,
   "ApplicableVersion": "any",
   "Tags": [ "AI", "chat", "companion" ],

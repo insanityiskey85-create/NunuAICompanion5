@@ -97,6 +97,53 @@ public static class ThemePalette
             (ImGuiCol.HeaderHovered, RGBA(170,120,40,245)),
             (ImGuiCol.HeaderActive, RGBA(200,140,50,255)),
         }),
+
+        // ===== New: Void Touched (deep void-purple with spectral accents) =====
+        ["Void Touched"] = new("Void Touched", new()
+        {
+            // backgrounds
+            (ImGuiCol.WindowBg, RGBA(14, 8, 20, 255)),   // near-black purple
+            (ImGuiCol.ChildBg,  RGBA(18, 10, 26, 255)),
+            (ImGuiCol.FrameBg,  RGBA(36, 18, 54, 255)),  // dark plum
+
+            // borders & separators
+            (ImGuiCol.Border,   RGBA(72, 36, 108, 200)),
+            (ImGuiCol.Separator,RGBA(72, 36, 108, 220)),
+
+            // text
+            (ImGuiCol.Text,     RGBA(230, 208, 255, 255)), // pale lilac
+            (ImGuiCol.TextDisabled, RGBA(160, 130, 190, 255)),
+
+            // frames (hover/active)
+            (ImGuiCol.FrameBgHovered, RGBA(64, 30, 96, 230)),
+            (ImGuiCol.FrameBgActive,  RGBA(88, 40, 128, 240)),
+
+            // buttons
+            (ImGuiCol.Button,         RGBA(72, 30, 110, 220)),
+            (ImGuiCol.ButtonHovered,  RGBA(104, 50, 160, 235)),
+            (ImGuiCol.ButtonActive,   RGBA(130, 62, 196, 255)),
+
+            // headers (tree/table/menus)
+            (ImGuiCol.Header,         RGBA(72, 30, 110, 220)),
+            (ImGuiCol.HeaderHovered,  RGBA(104, 50, 160, 235)),
+            (ImGuiCol.HeaderActive,   RGBA(130, 62, 196, 255)),
+
+            // tabs
+            (ImGuiCol.Tab,            RGBA(36, 18, 54, 255)),
+            (ImGuiCol.TabHovered,     RGBA(104, 50, 160, 235)),
+            (ImGuiCol.TabActive,      RGBA(88, 40, 128, 240)),
+
+            // widgets
+            (ImGuiCol.CheckMark,      RGBA(200, 150, 255, 255)),
+            (ImGuiCol.SliderGrab,     RGBA(130, 62, 196, 255)),
+            (ImGuiCol.SliderGrabActive,RGBA(170, 90, 230, 255)),
+
+            // scrollbars
+            (ImGuiCol.ScrollbarBg,         RGBA(18, 10, 26, 255)),
+            (ImGuiCol.ScrollbarGrab,       RGBA(72, 36, 108, 220)),
+            (ImGuiCol.ScrollbarGrabHovered,RGBA(104, 50, 160, 235)),
+            (ImGuiCol.ScrollbarGrabActive, RGBA(130, 62, 196, 255)),
+        }),
     };
 
     public static int ApplyTheme(string name)

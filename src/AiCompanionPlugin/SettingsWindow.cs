@@ -3,7 +3,6 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using Dalamud.Interface.Windowing;
-using Dalamud.Interface.Windowing;
 
 namespace AiCompanionPlugin;
 

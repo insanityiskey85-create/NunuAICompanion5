@@ -16,9 +16,12 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IFramework Framework { get; private set; } = null!;
     [PluginService] internal static IPluginLog PluginLog { get; private set; } = null!;
 
+    private static Plugin? Instance;
+
     private readonly WindowSystem windowSystem = new("AI Companion");
     private readonly Configuration config;
     private readonly PersonaManager personaManager;
+    private readonly MemoryManager memoryManager;
     private readonly AiClient aiClient;
     private readonly ChatWindow chatWindow;
     private readonly SettingsWindow settingsWindow;
@@ -27,33 +30,45 @@ public sealed class Plugin : IDalamudPlugin
 
     public Plugin()
     {
+        Instance = this;
+
         // Load config
         this.config = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
         this.config.Initialize(PluginInterface);
 
-        // Persona & client
+        // Services
         this.personaManager = new PersonaManager(PluginInterface, PluginLog, config);
+        this.memoryManager = new MemoryManager(PluginInterface, PluginLog, config);
         this.aiClient = new AiClient(PluginLog, config, personaManager);
 
-        // Windows (pass aiClient into settings so we can Test Connection)
-        this.chatWindow = new ChatWindow(PluginLog, aiClient, config, personaManager);
-        this.settingsWindow = new SettingsWindow(config, personaManager, aiClient);
+        // UI windows
+        this.chatWindow = new ChatWindow(PluginLog, aiClient, config, personaManager, memoryManager);
+        this.settingsWindow = new SettingsWindow(config, personaManager, memoryManager);
 
         windowSystem.AddWindow(chatWindow);
         windowSystem.AddWindow(settingsWindow);
 
+        // Hooks
         PluginInterface.UiBuilder.Draw += DrawUi;
         PluginInterface.UiBuilder.OpenConfigUi += ToggleSettings;
 
+        // Command
         CommandManager.AddHandler(Command, new CommandInfo(OnCommand)
         {
             HelpMessage = "Open AI Companion chat window"
         });
     }
 
-    private void OnCommand(string _, string __) => chatWindow.IsOpen = true;
+    private void OnCommand(string command, string args) => chatWindow.IsOpen = true;
     private void ToggleSettings() => settingsWindow.IsOpen = true;
     private void DrawUi() => windowSystem.Draw();
+
+    // Helper so other classes can open settings without touching the UiBuilder event.
+    public static void OpenSettingsWindow()
+    {
+        if (Instance != null)
+            Instance.settingsWindow.IsOpen = true;
+    }
 
     public void Dispose()
     {
@@ -61,13 +76,9 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.Draw -= DrawUi;
         PluginInterface.UiBuilder.OpenConfigUi -= ToggleSettings;
         windowSystem.RemoveAllWindows();
-
         aiClient.Dispose();
         personaManager.Dispose();
-    }
-
-    internal static void OpenSettingsWindow()
-    {
-        throw new NotImplementedException();
+        memoryManager.Dispose();
+        Instance = null;
     }
 }

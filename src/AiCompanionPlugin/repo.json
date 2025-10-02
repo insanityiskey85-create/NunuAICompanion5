@@ -1,0 +1,24 @@
+[
+  {
+    "Author": "insanityiskey85",
+    "Name": "AI Companion",
+    "InternalName": "AiCompanionPlugin",
+    "AssemblyVersion": "1.0.0.0",
+    "Punchline": "Isolated AI chat companion window.",
+    "Description": "Private AI chat window. No chat hooks. Persona via persona.txt. Theme presets and memories.json.",
+    "ApplicableVersion": "any",
+    "DalamudApiLevel": 13,
+    "RepoUrl": "https://github.com/insanityiskey85-create/NunuAICompanion5",
+    "Tags": [ "AI", "chat", "companion" ],
+    "CategoryTags": [ "utility" ],
+    "DownloadLinkInstall": "https://github.com/insanityiskey85-create/NunuAICompanion5/releases/latest/download/AiCompanionPlugin.zip",
+    "DownloadLinkUpdate": "https://github.com/insanityiskey85-create/NunuAICompanion5/releases/latest/download/AiCompanionPlugin.zip",
+    "DownloadLinkTesting": "https://github.com/insanityiskey85-create/NunuAICompanion5/releases/download/testing/AiCompanionPlugin.zip",
+    "IconUrl": "https://raw.githubusercontent.com/insanityiskey85-create/NunuAICompanion5/main/icon.png",
+    "ImageUrls": [],
+    "Changelog": "Initial public repo build.",
+    "LoadPriority": 0,
+    "AcceptsFeedback": false,
+    "IsHide": false
+  }
+]

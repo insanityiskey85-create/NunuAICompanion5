@@ -19,8 +19,6 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IPluginLog PluginLog { get; private set; } = null!;
     [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
 
-    public SayListener SayListener => sayListener;
-
     private static Plugin? Instance;
 
     private readonly WindowSystem windowSystem = new("AI Companion");
@@ -30,8 +28,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly ChronicleManager chronicleManager;
     private readonly AiClient aiClient;
     private readonly ChatPipe chatPipe;
-    private readonly PartyListener partyListener;
-    private readonly SayListener sayListener;
+    private readonly AutoRouteListener autoListener;
     private readonly ChatWindow chatWindow;
     private readonly SettingsWindow settingsWindow;
     private readonly ChronicleWindow chronicleWindow;
@@ -53,8 +50,7 @@ public sealed class Plugin : IDalamudPlugin
         chronicleManager = new ChronicleManager(PluginInterface, PluginLog, config);
         aiClient = new AiClient(PluginLog, config, personaManager);
         chatPipe = new ChatPipe(CommandManager, PluginLog, config);
-        partyListener = new PartyListener(ChatGui, PluginLog, config, aiClient, chatPipe);
-        sayListener = new SayListener(ChatGui, PluginLog, config, aiClient, chatPipe);
+        autoListener = new AutoRouteListener(ChatGui, PluginLog, config, aiClient, chatPipe);
 
         chatWindow = new ChatWindow(PluginLog, aiClient, config, personaManager, memoryManager, chronicleManager, chatPipe);
         settingsWindow = new SettingsWindow(config, personaManager, memoryManager, chronicleManager);
@@ -121,8 +117,7 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.Draw -= DrawUi;
         PluginInterface.UiBuilder.OpenConfigUi -= ToggleSettings;
         windowSystem.RemoveAllWindows();
-        SayListener.Dispose();
-        partyListener.Dispose();
+        autoListener.Dispose();
         aiClient.Dispose();
         personaManager.Dispose();
         memoryManager.Dispose();

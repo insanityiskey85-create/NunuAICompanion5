@@ -8,7 +8,7 @@ namespace AiCompanionPlugin;
 [Serializable]
 public sealed class Configuration : IPluginConfiguration
 {
-    public int Version { get; set; } = 7;
+    public int Version { get; set; } = 8;
 
     // Backend
     public string BackendBaseUrl { get; set; } = "http://127.0.0.1:11434";
@@ -45,7 +45,7 @@ public sealed class Configuration : IPluginConfiguration
     // Party Chat Pipe (outbound)
     public bool EnablePartyPipe { get; set; } = false;
     public bool ConfirmBeforePartyPost { get; set; } = true;
-    public int PartyChunkSize { get; set; } = 440;
+    public int PartyChunkSize { get; set; } = 440;  // safe under line cap
     public int PartyPostDelayMs { get; set; } = 800;
 
     // Party Listener (inbound)
@@ -54,10 +54,14 @@ public sealed class Configuration : IPluginConfiguration
     public List<string> PartyWhitelist { get; set; } = new() { "Your Name Here" };
     public bool PartyAutoReply { get; set; } = true;
 
-    // NEW: Formatting for party attribution
+    // Party formatting
     public bool PartyEchoCallerPrompt { get; set; } = true;
     public string PartyCallerEchoFormat { get; set; } = "{caller} \u2192 {ai}: {prompt}";
     public string PartyAiReplyFormat { get; set; } = "{ai} \u2192 {caller}: {reply}";
+
+    // NEW: Streaming thresholds for party auto-replies
+    public int PartyStreamFlushChars { get; set; } = 180;   // send a new /p line when buffer hits this
+    public int PartyStreamMinFlushMs { get; set; } = 600;   // also flush if this many ms pass
 
     [NonSerialized] private IDalamudPluginInterface? pluginInterface;
     public void Initialize(IDalamudPluginInterface pi) => pluginInterface = pi;

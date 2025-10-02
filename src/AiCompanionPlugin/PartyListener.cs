@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -9,9 +10,9 @@ using Dalamud.Plugin.Services;
 namespace AiCompanionPlugin;
 
 /// <summary>
-/// Listens to PARTY only. On trigger by whitelisted caller:
-/// 1) (optional) Echoes caller's prompt to /p using the caller's name.
-/// 2) Queries AI and replies with formatted line addressing the caller.
+/// PARTY-only listener. On trigger from a whitelisted caller:
+/// 1) Optional echo of the caller prompt.
+/// 2) Stream AI reply to /p as it generates.
 /// </summary>
 public sealed class PartyListener : IDisposable
 {
@@ -32,11 +33,6 @@ public sealed class PartyListener : IDisposable
         this.chat.ChatMessage += OnChatMessage;
     }
 
-    private void OnChatMessage(XivChatType type, int timestamp, ref SeString sender, ref SeString message, ref bool isHandled)
-    {
-        throw new NotImplementedException();
-    }
-
     private void OnChatMessage(XivChatType type, uint senderId, ref SeString sender, ref SeString message, ref bool isHandled)
     {
         try
@@ -44,7 +40,7 @@ public sealed class PartyListener : IDisposable
             if (!config.EnablePartyListener) return;
             if (type != XivChatType.Party) return;
 
-            var senderName = NormalizeName(sender.TextValue); // "First Last"
+            var senderName = NormalizeName(sender.TextValue);
             var msg = (message.TextValue ?? string.Empty).Trim();
             if (string.IsNullOrEmpty(msg)) return;
 
@@ -65,7 +61,7 @@ public sealed class PartyListener : IDisposable
             if (string.IsNullOrWhiteSpace(prompt)) return;
             if (!config.PartyAutoReply) return;
 
-            _ = RespondAsync(prompt, senderName);
+            _ = RespondStreamAsync(prompt, senderName);
         }
         catch (Exception ex)
         {
@@ -73,13 +69,13 @@ public sealed class PartyListener : IDisposable
         }
     }
 
-    private async Task RespondAsync(string prompt, string caller)
+    private async Task RespondStreamAsync(string prompt, string caller)
     {
         try
         {
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
 
-            // 1) Echo caller's prompt (optional), *without* AI prefix
+            // 1) Echo caller’s prompt (optional), not prefixed
             if (config.PartyEchoCallerPrompt)
             {
                 var echo = (config.PartyCallerEchoFormat ?? "{caller} -> {ai}: {prompt}")
@@ -89,28 +85,25 @@ public sealed class PartyListener : IDisposable
                 await pipe.SendToPartyAsync(echo, cts.Token, addPrefix: false).ConfigureAwait(false);
             }
 
-            // 2) Ask AI (quick single-shot)
-            var addressedPrompt = $"Caller: {caller}\n\n{prompt}";
-            var reply = await client.ChatOnceAsync(
-                new System.Collections.Generic.List<ChatMessage>(),
-                addressedPrompt,
-                cts.Token).ConfigureAwait(false);
-
-            reply = (reply ?? string.Empty).Trim();
-            if (reply.Length == 0) return;
-
-            // 3) Format reply (AI prefix kept by ChatPipe)
-            var text = (config.PartyAiReplyFormat ?? "{ai} -> {caller}: {reply}")
+            // 2) Build header (e.g., "AI Nunu → Caller: ")
+            var aiName = string.IsNullOrWhiteSpace(config.AiDisplayName) ? "AI Nunu" : config.AiDisplayName;
+            var format = config.PartyAiReplyFormat ?? "{ai} -> {caller}: {reply}";
+            var header = format
+                .Replace("{ai}", aiName)
                 .Replace("{caller}", caller)
-                .Replace("{ai}", string.IsNullOrWhiteSpace(config.AiDisplayName) ? "AI Nunu" : config.AiDisplayName)
-                .Replace("{reply}", reply);
+                .Replace("{reply}", string.Empty); // streaming will fill reply live
 
-            await pipe.SendToPartyAsync(text, cts.Token, addPrefix: true).ConfigureAwait(false);
+            // 3) Start token stream
+            var tokens = client.ChatStreamAsync(new List<ChatMessage>(), // no history for quick party replies
+                $"Caller: {caller}\n\n{prompt}",
+                cts.Token);
+
+            await pipe.SendStreamingToPartyAsync(tokens, header, cts.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)
         {
-            log.Error(ex, "PartyListener RespondAsync error");
+            log.Error(ex, "PartyListener RespondStreamAsync error");
         }
     }
 
@@ -125,5 +118,10 @@ public sealed class PartyListener : IDisposable
     public void Dispose()
     {
         chat.ChatMessage -= OnChatMessage;
+    }
+
+    private void OnChatMessage(XivChatType type, int timestamp, ref SeString sender, ref SeString message, ref bool isHandled)
+    {
+        throw new NotImplementedException();
     }
 }

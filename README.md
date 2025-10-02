@@ -1,6 +1,6 @@
-# AI Companion (Dalamud Plugin)
+﻿# AI Companion (Dalamud Plugin)
 
-Isolated AI chat window for a truly personal in-game companion. No chat channel hooks, no whitelist, no listening�just a private window you summon with `/aic`.
+Isolated AI chat window for a truly personal in-game companion. No chat channel hooks, no whitelist, no listening—just a private window you summon with `/aic`.
 
 - Target runtime: **.NET 9.0**
 - Dalamud API Level: **13**
@@ -17,15 +17,14 @@ Isolated AI chat window for a truly personal in-game companion. No chat channel 
 - **Persona system** via `persona.txt` with hot-reload.
 - **Configurable backend** (URL, API key, model).
 - **Streaming** support (SSE) for OpenAI-compatible `/v1/chat/completions`.
-- **Theme presets** for the chat window: *Eorzean Night*, *Voidglass*, *Maelstrom Red*, *Gridania Moss*, *Ul'dahn Ember*.
+- **Memories**: Save conversation snippets to `memories.json` (view, search, delete, clear).
+- **Private storage** in the plugin config directory.
 
 ## Usage
-- Drop the plugin into your dev plugins folder.
-- Launch the game with Dalamud.
-- Run `/aic` to open the chat.
-- Configure backend + model in **AI Companion Settings**.
-- Edit `persona.txt` in the plugin config folder; changes hot-reload.
+- `/aic` opens the chat window.
+- In **Settings → Memories**, toggle memories, pick file name, and open the file.
+- Use **★ Save Input** or **★ Save Last** in the chat window to record notes.
+- Click **Memories** to open the viewer (search by text or `#tag`).
 
-## Backend Notes
-- Works with any OpenAI-compatible endpoint that supports `/v1/chat/completions` and optional SSE streaming.
-- For Ollama + OpenAI-compatible proxy, set Base URL and Model accordingly.
+## File Locations
+- Config & data live in your Dalamud plugin config directory (`persona.txt`, `memories.json`).

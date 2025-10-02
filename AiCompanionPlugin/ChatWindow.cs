@@ -1,11 +1,11 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Numerics;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin.Services;
-using ImGuiNET;
+using Dalamud.Bindings.ImGui; // ⬅ use Dalamud bindings
 
 namespace AiCompanionPlugin;
 
@@ -34,71 +34,63 @@ public sealed class ChatWindow : Window
 
     public override void Draw()
     {
-        var pushed = ThemePalette.ApplyTheme(config.SelectedTheme);
-        try
+        // Transcript area
+        ImGui.BeginChild("chat-scroll", new Vector2(0, -95), true);
+        foreach (var m in history)
         {
-            // Transcript area
-            ImGui.BeginChild("chat-scroll", new Vector2(0, -95), true);
-            foreach (var m in history)
+            ImGui.PushTextWrapPos();
+            ImGui.TextUnformatted($"{m.Role.ToUpperInvariant()}: {m.Content}");
+            ImGui.PopTextWrapPos();
+            ImGui.Separator();
+        }
+        if (responseBuffer.Length > 0)
+        {
+            ImGui.PushTextWrapPos();
+            ImGui.TextUnformatted($"ASSISTANT: {responseBuffer}");
+            ImGui.PopTextWrapPos();
+            ImGui.Separator();
+        }
+        ImGui.EndChild();
+
+        // Input & controls
+        ImGui.InputTextMultiline("##input", ref input, 8000, new Vector2(-120, 80));
+        ImGui.SameLine();
+        if (ImGui.BeginChild("controls", new Vector2(110, 80)))
+        {
+            var sending = cts != null;
+            var sendDisabled = sending || string.IsNullOrWhiteSpace(input);
+            if (ImGui.Button(sending ? "Sending" : "Send", new Vector2(100, 36)) && !sendDisabled)
             {
-                ImGui.PushTextWrapPos();
-                ImGui.TextUnformatted($"{m.Role.ToUpperInvariant()}: {m.Content}");
-                ImGui.PopTextWrapPos();
-                ImGui.Separator();
+                _ = SendAsync();
             }
-            if (responseBuffer.Length > 0)
+
+            if (sending)
             {
-                ImGui.PushTextWrapPos();
-                ImGui.TextUnformatted($"ASSISTANT: {responseBuffer}");
-                ImGui.PopTextWrapPos();
-                ImGui.Separator();
+                if (ImGui.Button("Cancel", new Vector2(100, 36)))
+                    cts?.Cancel();
+            }
+            else
+            {
+                if (ImGui.Button("Clear", new Vector2(100, 36)))
+                {
+                    history.Clear();
+                    responseBuffer.Clear();
+                }
             }
             ImGui.EndChild();
-
-            // Input & controls
-            ImGui.InputTextMultiline("##input", ref input, 8000, new Vector2(-120, 80));
-            ImGui.SameLine();
-            if (ImGui.BeginChild("controls", new Vector2(110, 80)))
-            {
-                var sending = cts != null;
-                var sendDisabled = sending || string.IsNullOrWhiteSpace(input);
-                if (ImGui.Button(sending ? "Sending" : "Send", new Vector2(100, 36)) && !sendDisabled)
-                {
-                    _ = SendAsync();
-                }
-
-                if (sending)
-                {
-                    if (ImGui.Button("Cancel", new Vector2(100, 36)))
-                        cts?.Cancel();
-                }
-                else
-                {
-                    if (ImGui.Button("Clear", new Vector2(100, 36)))
-                    {
-                        history.Clear();
-                        responseBuffer.Clear();
-                    }
-                }
-                ImGui.EndChild();
-            }
-
-            // Footer
-            if (ImGui.BeginChild("footer", new Vector2(0, 0)))
-            {
-                ImGui.TextDisabled($"Model: {config.Model} | Streaming: {config.StreamResponses} | Theme: {config.SelectedTheme} | Persona: {(string.IsNullOrWhiteSpace(config.SystemPromptOverride) ? "(default)" : "(custom)")}");
-                if (ImGui.Button("Settings"))
-                {
-                    Plugin.PluginInterface.UiBuilder.OpenConfigUi();
-                }
-                ImGui.SameLine();
-                ImGui.TextDisabled("This window is isolated. No chat hooks.");
-                ImGui.EndChild();
-            }
         }
-        finally
+
+        // Footer
+        if (ImGui.BeginChild("footer", new Vector2(0, 0)))
         {
-            ThemePalette.PopTheme(pushed);
+            ImGui.TextDisabled($"Model: {config.Model} | Streaming: {config.StreamResponses} | Persona: {(string.IsNullOrWhiteSpace(config.SystemPromptOverride) ? "(default)" : "(custom)")}");
+            if (ImGui.Button("Settings"))
+            {
+                Plugin.PluginInterface.UiBuilder.OpenConfigUi();
+            }
+            ImGui.SameLine();
+            ImGui.TextDisabled("This window is isolated. No chat hooks.");
+            ImGui.EndChild();
         }
     }
 
@@ -107,7 +99,6 @@ public sealed class ChatWindow : Window
         var text = input.Trim();
         if (string.IsNullOrWhiteSpace(text)) return;
 
-        // Push user message
         history.Add(new ChatMessage("user", text));
         input = string.Empty;
         responseBuffer.Clear();
@@ -121,7 +112,6 @@ public sealed class ChatWindow : Window
                 {
                     responseBuffer.Append(token);
                 }
-                // finalize assistant message
                 var full = responseBuffer.ToString();
                 history.Add(new ChatMessage("assistant", full));
                 responseBuffer.Clear();
@@ -134,7 +124,6 @@ public sealed class ChatWindow : Window
         }
         catch (System.OperationCanceledException)
         {
-            // user canceled; keep partial in buffer but do not commit
             log.Info("AI request canceled by user.");
         }
         catch (System.Exception ex)

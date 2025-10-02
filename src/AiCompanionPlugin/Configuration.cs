@@ -8,7 +8,7 @@ namespace AiCompanionPlugin;
 [Serializable]
 public sealed class Configuration : IPluginConfiguration
 {
-    public int Version { get; set; } = 8;
+    public int Version { get; set; } = 9;
 
     // Backend
     public string BackendBaseUrl { get; set; } = "http://127.0.0.1:11434";
@@ -35,33 +35,48 @@ public sealed class Configuration : IPluginConfiguration
     // Display
     public string AiDisplayName { get; set; } = "AI Nunu";
 
-    // Chronicle (Eternal Encore)
+    // Chronicle
     public bool EnableChronicle { get; set; } = true;
     public bool ChronicleAutoAppend { get; set; } = true;
     public int ChronicleMaxEntries { get; set; } = 1000;
     public string ChronicleFileRelative { get; set; } = "chronicle.json";
     public string ChronicleStyle { get; set; } = "Canon";
 
-    // Party Chat Pipe (outbound)
+    // PARTY — Outbound & Inbound
     public bool EnablePartyPipe { get; set; } = false;
     public bool ConfirmBeforePartyPost { get; set; } = true;
-    public int PartyChunkSize { get; set; } = 440;  // safe under line cap
+    public int PartyChunkSize { get; set; } = 440;
     public int PartyPostDelayMs { get; set; } = 800;
 
-    // Party Listener (inbound)
     public bool EnablePartyListener { get; set; } = false;
     public string PartyTrigger { get; set; } = "!AI Nunu";
     public List<string> PartyWhitelist { get; set; } = new() { "Your Name Here" };
     public bool PartyAutoReply { get; set; } = true;
 
-    // Party formatting
+    // SAY — Outbound & Inbound
+    public bool EnableSayPipe { get; set; } = false;
+    public int SayChunkSize { get; set; } = 440;
+    public int SayPostDelayMs { get; set; } = 800;
+
+    public bool EnableSayListener { get; set; } = false;
+    public string SayTrigger { get; set; } = "!AI Nunu";
+    public List<string> SayWhitelist { get; set; } = new() { "Your Name Here" };
+    public bool SayAutoReply { get; set; } = true;
+
+    // Formatting (shared)
     public bool PartyEchoCallerPrompt { get; set; } = true;
     public string PartyCallerEchoFormat { get; set; } = "{caller} \u2192 {ai}: {prompt}";
     public string PartyAiReplyFormat { get; set; } = "{ai} \u2192 {caller}: {reply}";
 
-    // NEW: Streaming thresholds for party auto-replies
-    public int PartyStreamFlushChars { get; set; } = 180;   // send a new /p line when buffer hits this
-    public int PartyStreamMinFlushMs { get; set; } = 600;   // also flush if this many ms pass
+    public bool SayEchoCallerPrompt { get; set; } = true;
+    public string SayCallerEchoFormat { get; set; } = "{caller} \u2192 {ai}: {prompt}";
+    public string SayAiReplyFormat { get; set; } = "{ai} \u2192 {caller}: {reply}";
+
+    // Streaming thresholds (used by both)
+    public int PartyStreamFlushChars { get; set; } = 180;
+    public int PartyStreamMinFlushMs { get; set; } = 600;
+    public int SayStreamFlushChars { get; set; } = 180;
+    public int SayStreamMinFlushMs { get; set; } = 600;
 
     [NonSerialized] private IDalamudPluginInterface? pluginInterface;
     public void Initialize(IDalamudPluginInterface pi) => pluginInterface = pi;
@@ -73,14 +88,12 @@ public sealed class Configuration : IPluginConfiguration
         System.IO.Directory.CreateDirectory(dir);
         return System.IO.Path.Combine(dir, PersonaFileRelative);
     }
-
     public string GetMemoriesAbsolutePath(IDalamudPluginInterface pi)
     {
         var dir = pi.GetPluginConfigDirectory();
         System.IO.Directory.CreateDirectory(dir);
         return System.IO.Path.Combine(dir, string.IsNullOrWhiteSpace(MemoriesFileRelative) ? "memories.json" : MemoriesFileRelative);
     }
-
     public string GetChronicleAbsolutePath(IDalamudPluginInterface pi)
     {
         var dir = pi.GetPluginConfigDirectory();

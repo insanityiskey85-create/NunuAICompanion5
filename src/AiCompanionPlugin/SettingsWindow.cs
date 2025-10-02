@@ -1,7 +1,6 @@
 ﻿using System;
 using System.IO;
 using System.Linq;
-using System.Text;
 using Dalamud.Interface.Windowing;
 
 namespace AiCompanionPlugin;
@@ -15,8 +14,9 @@ public sealed class SettingsWindow : Window
 
     private string status = string.Empty;
 
-    // temp editor for whitelist
-    private string whitelistEdit = string.Empty;
+    // temp editors
+    private string partyWhitelistEdit = string.Empty;
+    private string sayWhitelistEdit = string.Empty;
 
     public SettingsWindow(Configuration config, PersonaManager persona, MemoryManager memory, ChronicleManager chronicle)
         : base("AI Companion Settings", ImGuiWindowFlags.AlwaysAutoResize)
@@ -26,7 +26,8 @@ public sealed class SettingsWindow : Window
         this.memory = memory;
         this.chronicle = chronicle;
 
-        whitelistEdit = string.Join(Environment.NewLine, config.PartyWhitelist ?? new());
+        partyWhitelistEdit = string.Join(Environment.NewLine, config.PartyWhitelist ?? new());
+        sayWhitelistEdit = string.Join(Environment.NewLine, config.SayWhitelist ?? new());
     }
 
     public override void Draw()
@@ -50,8 +51,6 @@ public sealed class SettingsWindow : Window
         if (ImGui.SliderInt("Max History", ref maxHist, 2, 64)) { config.MaxHistoryMessages = maxHist; }
         bool stream = config.StreamResponses;
         if (ImGui.Checkbox("Stream Responses (SSE)", ref stream)) { config.StreamResponses = stream; }
-
-        // Display name
         var aiName = config.AiDisplayName ?? "AI Nunu";
         if (ImGui.InputText("AI Display Name", ref aiName, 64)) { config.AiDisplayName = aiName; }
 
@@ -158,48 +157,66 @@ public sealed class SettingsWindow : Window
 
         ImGui.Spacing();
 
-        // PARTY CHAT PIPE
-        ImGui.Text("Party Chat Pipe (Outbound)");
+        // PARTY — Pipe & Listener
+        ImGui.Text("Party (/p) — Pipe & Listener");
         ImGui.Separator();
-        bool enablePipe = config.EnablePartyPipe;
-        if (ImGui.Checkbox("Enable Party Chat Posting (/p only)", ref enablePipe)) { config.EnablePartyPipe = enablePipe; }
-        bool confirm = config.ConfirmBeforePartyPost;
-        if (ImGui.Checkbox("Confirm before posting", ref confirm)) { config.ConfirmBeforePartyPost = confirm; }
-        int chunk = config.PartyChunkSize;
-        if (ImGui.SliderInt("Message Chunk Size", ref chunk, 100, 480)) { config.PartyChunkSize = chunk; }
-        int delay = config.PartyPostDelayMs;
-        if (ImGui.SliderInt("Delay Between Chunks (ms)", ref delay, 200, 2000)) { config.PartyPostDelayMs = delay; }
+        bool enablePipeP = config.EnablePartyPipe;
+        if (ImGui.Checkbox("Enable Party Pipe (send)", ref enablePipeP)) { config.EnablePartyPipe = enablePipeP; }
+        int pChunk = config.PartyChunkSize;
+        if (ImGui.SliderInt("Party Chunk Size", ref pChunk, 100, 480)) { config.PartyChunkSize = pChunk; }
+        int pDelay = config.PartyPostDelayMs;
+        if (ImGui.SliderInt("Party Delay (ms)", ref pDelay, 200, 2000)) { config.PartyPostDelayMs = pDelay; }
+
+        bool listenerP = config.EnablePartyListener;
+        if (ImGui.Checkbox("Enable Party Listener (receive)", ref listenerP)) { config.EnablePartyListener = listenerP; }
+        var trigP = config.PartyTrigger ?? "!AI Nunu";
+        if (ImGui.InputText("Party Trigger", ref trigP, 64)) { config.PartyTrigger = trigP; }
+        bool autoP = config.PartyAutoReply;
+        if (ImGui.Checkbox("Auto-reply (Party)", ref autoP)) { config.PartyAutoReply = autoP; }
+        bool echoP = config.PartyEchoCallerPrompt;
+        if (ImGui.Checkbox("Echo Caller Prompt (Party)", ref echoP)) { config.PartyEchoCallerPrompt = echoP; }
+        ImGui.InputTextMultiline("Party Whitelist", ref partyWhitelistEdit, 8000, new System.Numerics.Vector2(400, 80));
+        if (ImGui.Button("Save Party Whitelist"))
+        {
+            var lines = partyWhitelistEdit.Replace("\r\n", "\n").Split('\n').Select(s => s.Trim()).Where(s => s.Length > 0).ToList();
+            config.PartyWhitelist = lines;
+            status = $"Party whitelist saved ({lines.Count}).";
+        }
 
         ImGui.Spacing();
 
-        // PARTY LISTENER (Inbound)
-        ImGui.Text("Party Listener (Inbound)");
+        // SAY — Pipe & Listener
+        ImGui.Text("Say (/s) — Pipe & Listener");
         ImGui.Separator();
-        bool listener = config.EnablePartyListener;
-        if (ImGui.Checkbox("Enable Party Listener (Party channel only)", ref listener)) { config.EnablePartyListener = listener; }
-        var trig = config.PartyTrigger ?? "!AI Nunu";
-        if (ImGui.InputText("Trigger", ref trig, 64)) { config.PartyTrigger = trig; }
-        bool autoReply = config.PartyAutoReply;
-        if (ImGui.Checkbox("Auto-reply when triggered", ref autoReply)) { config.PartyAutoReply = autoReply; }
+        bool enablePipeS = config.EnableSayPipe;
+        if (ImGui.Checkbox("Enable Say Pipe (send)", ref enablePipeS)) { config.EnableSayPipe = enablePipeS; }
+        int sChunk = config.SayChunkSize;
+        if (ImGui.SliderInt("Say Chunk Size", ref sChunk, 100, 480)) { config.SayChunkSize = sChunk; }
+        int sDelay = config.SayPostDelayMs;
+        if (ImGui.SliderInt("Say Delay (ms)", ref sDelay, 200, 2000)) { config.SayPostDelayMs = sDelay; }
 
-        ImGui.Text("Whitelist (one name per line, no @World):");
-        ImGui.InputTextMultiline("##whitelist", ref whitelistEdit, 8000, new System.Numerics.Vector2(400, 100));
-        if (ImGui.Button("Save Whitelist"))
+        bool listenerS = config.EnableSayListener;
+        if (ImGui.Checkbox("Enable Say Listener (receive)", ref listenerS)) { config.EnableSayListener = listenerS; }
+        var trigS = config.SayTrigger ?? "!AI Nunu";
+        if (ImGui.InputText("Say Trigger", ref trigS, 64)) { config.SayTrigger = trigS; }
+        bool autoS = config.SayAutoReply;
+        if (ImGui.Checkbox("Auto-reply (Say)", ref autoS)) { config.SayAutoReply = autoS; }
+        bool echoS = config.SayEchoCallerPrompt;
+        if (ImGui.Checkbox("Echo Caller Prompt (Say)", ref echoS)) { config.SayEchoCallerPrompt = echoS; }
+        ImGui.InputTextMultiline("Say Whitelist", ref sayWhitelistEdit, 8000, new System.Numerics.Vector2(400, 80));
+        if (ImGui.Button("Save Say Whitelist"))
         {
-            var lines = whitelistEdit.Replace("\r\n", "\n").Split('\n').Select(s => s.Trim()).Where(s => s.Length > 0).ToList();
-            config.PartyWhitelist = lines;
-            status = $"Whitelist saved ({lines.Count} entries).";
+            var lines = sayWhitelistEdit.Replace("\r\n", "\n").Split('\n').Select(s => s.Trim()).Where(s => s.Length > 0).ToList();
+            config.SayWhitelist = lines;
+            status = $"Say whitelist saved ({lines.Count}).";
         }
 
         ImGui.Spacing();
 
         if (ImGui.Button("Save Settings")) { config.Save(); status = "Settings saved."; }
-        if (!string.IsNullOrEmpty(status))
-        {
-            ImGui.SameLine(); ImGui.TextDisabled(status);
-        }
+        if (!string.IsNullOrEmpty(status)) { ImGui.SameLine(); ImGui.TextDisabled(status); }
 
         ImGui.Spacing();
-        ImGui.TextDisabled("Listener scope: Party channel only. Triggers must start the message and sender must be on whitelist.");
+        ImGui.TextDisabled("Routing: /p and /s supported. Listeners obey trigger + whitelist. Streaming replies chunked & timed.");
     }
 }

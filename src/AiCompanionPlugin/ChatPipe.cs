@@ -8,9 +8,11 @@ using Dalamud.Plugin.Services;
 
 namespace AiCompanionPlugin;
 
+public enum ChatRoute { Party, Say }
+
 /// <summary>
-/// Outbound-only router to PARTY chat. Uses ICommandManager.ProcessCommand("/p ...").
-/// Supports normal sends and streaming sends.
+/// Outbound router to /p or /s using ICommandManager.ProcessCommand.
+/// Supports normal and streaming sends.
 /// </summary>
 public sealed class ChatPipe
 {
@@ -25,19 +27,32 @@ public sealed class ChatPipe
         this.config = config;
     }
 
-    /// <summary>Send text to PARTY, chunked and delayed. addPrefix=true adds "[AI Nunu] ".</summary>
-    public async Task SendToPartyAsync(string? text, CancellationToken token = default, bool addPrefix = true)
+    private (string prefixCmd, int chunk, int delay, int flushChars, int flushMs, bool enabled, string aiPrefix) GetRouteParams(ChatRoute route)
     {
-        if (!config.EnablePartyPipe) throw new InvalidOperationException("Party pipe is disabled in settings.");
+        var aiPrefix = string.IsNullOrWhiteSpace(config.AiDisplayName) ? "[AI Nunu] " : $"[{config.AiDisplayName}] ";
+        return route switch
+        {
+            ChatRoute.Party => ("/p ", Math.Max(64, config.PartyChunkSize), Math.Max(200, config.PartyPostDelayMs),
+                                Math.Max(40, config.PartyStreamFlushChars), Math.Max(300, config.PartyStreamMinFlushMs),
+                                config.EnablePartyPipe, aiPrefix),
+            ChatRoute.Say => ("/s ", Math.Max(64, config.SayChunkSize), Math.Max(200, config.SayPostDelayMs),
+                                Math.Max(40, config.SayStreamFlushChars), Math.Max(300, config.SayStreamMinFlushMs),
+                                config.EnableSayPipe, aiPrefix),
+            _ => ("/p ", 440, 800, 180, 600, false, aiPrefix),
+        };
+    }
+
+    /// <summary>Send a whole message to the given route (Party/Say), chunked and delayed.</summary>
+    public async Task SendToAsync(ChatRoute route, string? text, CancellationToken token = default, bool addPrefix = true)
+    {
+        var (cmd, chunkSize, delay, _, _, enabled, aiPrefix) = GetRouteParams(route);
+        if (!enabled) throw new InvalidOperationException($"{route} pipe is disabled in settings.");
         if (string.IsNullOrWhiteSpace(text)) return;
 
-        var prefix = addPrefix
-            ? (string.IsNullOrWhiteSpace(config.AiDisplayName) ? "[AI Nunu] " : $"[{config.AiDisplayName}] ")
-            : string.Empty;
-
+        var prefix = addPrefix ? aiPrefix : string.Empty;
         text = text.Replace("\r\n", "\n").Trim();
 
-        var chunks = ChunkSmart(text, Math.Max(64, config.PartyChunkSize - prefix.Length));
+        var chunks = ChunkSmart(text, chunkSize - prefix.Length);
         bool first = true;
 
         foreach (var raw in chunks)
@@ -46,30 +61,24 @@ public sealed class ChatPipe
             var line = first ? prefix + raw : "…" + raw;
             first = false;
 
-            commands.ProcessCommand("/p " + line);
-            log.Info($"PartyPipe sent {line.Length} chars.");
-            await Task.Delay(Math.Max(200, config.PartyPostDelayMs), token).ConfigureAwait(false);
+            commands.ProcessCommand(cmd + line);
+            log.Info($"ChatPipe({route}) sent {line.Length} chars.");
+            await Task.Delay(delay, token).ConfigureAwait(false);
         }
     }
 
-    /// <summary>
-    /// Stream tokens to PARTY as multiple lines.
-    /// The first line includes a custom header (e.g., "AI Nunu → Caller: "), subsequent lines start with "…".
-    /// </summary>
-    public async Task SendStreamingToPartyAsync(
-        IAsyncEnumerable<string> tokens,
-        string headerForFirstLine,
-        CancellationToken token = default)
+    /// <summary>Stream tokens to route with header on first line and continuation thereafter.</summary>
+    public async Task SendStreamingToAsync(ChatRoute route, IAsyncEnumerable<string> tokens, string headerForFirstLine, CancellationToken token = default)
     {
-        if (!config.EnablePartyPipe) throw new InvalidOperationException("Party pipe is disabled in settings.");
+        var (cmd, chunkSize, delay, flushChars, flushMs, enabled, aiPrefix) = GetRouteParams(route);
+        if (!enabled) throw new InvalidOperationException($"{route} pipe is disabled in settings.");
 
         headerForFirstLine ??= string.Empty;
-        var firstPrefix = (string.IsNullOrWhiteSpace(config.AiDisplayName) ? "[AI Nunu] " : $"[{config.AiDisplayName}] ")
-                          + headerForFirstLine;
+        var firstPrefix = aiPrefix + headerForFirstLine;
         var contPrefix = "…";
 
-        var firstMax = Math.Max(64, config.PartyChunkSize - firstPrefix.Length);
-        var contMax = Math.Max(64, config.PartyChunkSize - contPrefix.Length);
+        var firstMax = Math.Max(64, chunkSize - firstPrefix.Length);
+        var contMax = Math.Max(64, chunkSize - contPrefix.Length);
 
         var sb = new StringBuilder();
         var first = true;
@@ -81,8 +90,7 @@ public sealed class ChatPipe
             sb.Append(t);
 
             var elapsed = Environment.TickCount - lastFlush;
-            var flushChars = Math.Max(40, config.PartyStreamFlushChars);
-            var needFlush = sb.Length >= flushChars || elapsed >= Math.Max(300, config.PartyStreamMinFlushMs);
+            var needFlush = sb.Length >= flushChars || elapsed >= flushMs;
 
             while (needFlush && sb.Length > 0)
             {
@@ -93,8 +101,7 @@ public sealed class ChatPipe
                     var take = Math.Min(firstMax, sb.Length);
                     var chunk = sb.ToString(0, take);
                     sb.Remove(0, take);
-
-                    commands.ProcessCommand("/p " + firstPrefix + chunk);
+                    commands.ProcessCommand(cmd + firstPrefix + chunk);
                     first = false;
                 }
                 else
@@ -102,42 +109,27 @@ public sealed class ChatPipe
                     var take = Math.Min(contMax, sb.Length);
                     var chunk = sb.ToString(0, take);
                     sb.Remove(0, take);
-
-                    commands.ProcessCommand("/p " + contPrefix + chunk);
+                    commands.ProcessCommand(cmd + contPrefix + chunk);
                 }
 
-                log.Info("PartyPipe streamed chunk.");
+                log.Info($"ChatPipe({route}) streamed chunk.");
                 lastFlush = Environment.TickCount;
-                await Task.Delay(Math.Max(200, config.PartyPostDelayMs), token).ConfigureAwait(false);
+                await Task.Delay(delay, token).ConfigureAwait(false);
 
-                // If still long, keep looping; else break
-                needFlush = sb.Length >= flushChars || (Environment.TickCount - lastFlush) >= Math.Max(300, config.PartyStreamMinFlushMs);
+                needFlush = sb.Length >= flushChars || (Environment.TickCount - lastFlush) >= flushMs;
             }
         }
 
         // Final flush
-        if (sb.Length > 0)
+        while (sb.Length > 0)
         {
             token.ThrowIfCancellationRequested();
-
-            if (first)
-            {
-                var take = Math.Min(firstMax, sb.Length);
-                var chunk = sb.ToString(0, take);
-                sb.Remove(0, take);
-                commands.ProcessCommand("/p " + firstPrefix + chunk);
-            }
-            else
-            {
-                while (sb.Length > 0)
-                {
-                    var take = Math.Min(contMax, sb.Length);
-                    var chunk = sb.ToString(0, take);
-                    sb.Remove(0, take);
-                    commands.ProcessCommand("/p " + contPrefix + chunk);
-                    await Task.Delay(Math.Max(200, config.PartyPostDelayMs), token).ConfigureAwait(false);
-                }
-            }
+            var take = Math.Min(first ? firstMax : contMax, sb.Length);
+            var chunk = sb.ToString(0, take);
+            sb.Remove(0, take);
+            commands.ProcessCommand(cmd + (first ? firstPrefix : contPrefix) + chunk);
+            first = false;
+            await Task.Delay(delay, token).ConfigureAwait(false);
         }
     }
 

@@ -19,13 +19,7 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IPluginLog PluginLog { get; private set; } = null!;
     [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
 
-    public PartyListener PartyListener
-    {
-        get
-        {
-            return partyListener;
-        }
-    }
+    public SayListener SayListener => sayListener;
 
     private static Plugin? Instance;
 
@@ -37,6 +31,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly AiClient aiClient;
     private readonly ChatPipe chatPipe;
     private readonly PartyListener partyListener;
+    private readonly SayListener sayListener;
     private readonly ChatWindow chatWindow;
     private readonly SettingsWindow settingsWindow;
     private readonly ChronicleWindow chronicleWindow;
@@ -44,6 +39,7 @@ public sealed class Plugin : IDalamudPlugin
     private const string CommandChat = "/aic";
     private const string CommandChron = "/aiclog";
     private const string CommandParty = "/aiparty";
+    private const string CommandSay = "/aisay";
 
     public Plugin()
     {
@@ -58,6 +54,7 @@ public sealed class Plugin : IDalamudPlugin
         aiClient = new AiClient(PluginLog, config, personaManager);
         chatPipe = new ChatPipe(CommandManager, PluginLog, config);
         partyListener = new PartyListener(ChatGui, PluginLog, config, aiClient, chatPipe);
+        sayListener = new SayListener(ChatGui, PluginLog, config, aiClient, chatPipe);
 
         chatWindow = new ChatWindow(PluginLog, aiClient, config, personaManager, memoryManager, chronicleManager, chatPipe);
         settingsWindow = new SettingsWindow(config, personaManager, memoryManager, chronicleManager);
@@ -72,7 +69,8 @@ public sealed class Plugin : IDalamudPlugin
 
         CommandManager.AddHandler(CommandChat, new CommandInfo(OnChat) { HelpMessage = "Open AI Companion chat window" });
         CommandManager.AddHandler(CommandChron, new CommandInfo(OnChron) { HelpMessage = "Open AI Nunu Chronicle window" });
-        CommandManager.AddHandler(CommandParty, new CommandInfo(OnParty) { HelpMessage = "Send text to Party via AI Companion (/aiparty message)" });
+        CommandManager.AddHandler(CommandParty, new CommandInfo(OnParty) { HelpMessage = "Send text to Party (/aiparty message)" });
+        CommandManager.AddHandler(CommandSay, new CommandInfo(OnSay) { HelpMessage = "Send text to Say (/aisay message)" });
     }
 
     private void OnChat(string command, string args) => chatWindow.IsOpen = true;
@@ -80,31 +78,31 @@ public sealed class Plugin : IDalamudPlugin
 
     private void OnParty(string command, string args)
     {
-        if (!config.EnablePartyPipe)
-        {
-            ChatGui.PrintError("[AI Companion] Party Pipe is disabled in Settings.");
-            return;
-        }
+        if (!config.EnablePartyPipe) { ChatGui.PrintError("[AI Companion] Party Pipe is disabled."); return; }
         var msg = (args ?? string.Empty).Trim();
-        if (string.IsNullOrWhiteSpace(msg))
-        {
-            ChatGui.PrintError("[AI Companion] Provide text: /aiparty <message>");
-            return;
-        }
-        _ = SafePartySendAsync(msg);
+        if (string.IsNullOrWhiteSpace(msg)) { ChatGui.PrintError("[AI Companion] /aiparty <message>"); return; }
+        _ = SafeRouteSendAsync(ChatRoute.Party, msg);
     }
 
-    private async Task SafePartySendAsync(string text)
+    private void OnSay(string command, string args)
+    {
+        if (!config.EnableSayPipe) { ChatGui.PrintError("[AI Companion] Say Pipe is disabled."); return; }
+        var msg = (args ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(msg)) { ChatGui.PrintError("[AI Companion] /aisay <message>"); return; }
+        _ = SafeRouteSendAsync(ChatRoute.Say, msg);
+    }
+
+    private async Task SafeRouteSendAsync(ChatRoute route, string text)
     {
         try
         {
             using var cts = new CancellationTokenSource();
-            await chatPipe.SendToPartyAsync(text, cts.Token).ConfigureAwait(false);
+            await chatPipe.SendToAsync(route, text, cts.Token).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
-            PluginLog.Error(ex, "Party pipe failed");
-            ChatGui.PrintError("[AI Companion] Failed to send to party.");
+            PluginLog.Error(ex, $"{route} pipe failed");
+            ChatGui.PrintError($"[AI Companion] Failed to send to {route.ToString().ToLower()}.");
         }
     }
 
@@ -119,10 +117,12 @@ public sealed class Plugin : IDalamudPlugin
         CommandManager.RemoveHandler(CommandChat);
         CommandManager.RemoveHandler(CommandChron);
         CommandManager.RemoveHandler(CommandParty);
+        CommandManager.RemoveHandler(CommandSay);
         PluginInterface.UiBuilder.Draw -= DrawUi;
         PluginInterface.UiBuilder.OpenConfigUi -= ToggleSettings;
         windowSystem.RemoveAllWindows();
-        PartyListener.Dispose();
+        SayListener.Dispose();
+        partyListener.Dispose();
         aiClient.Dispose();
         personaManager.Dispose();
         memoryManager.Dispose();

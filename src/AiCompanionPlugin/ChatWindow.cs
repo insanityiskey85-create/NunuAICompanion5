@@ -1,11 +1,11 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Numerics;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin.Services;
-
 
 namespace AiCompanionPlugin;
 
@@ -41,15 +41,20 @@ public sealed class ChatWindow : Window
         ImGui.BeginChild("chat-scroll", new Vector2(0, -95), true);
         foreach (var m in history)
         {
+            var label = m.Role.Equals("assistant", StringComparison.OrdinalIgnoreCase)
+                ? (string.IsNullOrWhiteSpace(config.AiDisplayName) ? "AI Nunu" : config.AiDisplayName)
+                : m.Role.ToUpperInvariant();
+
             ImGui.PushTextWrapPos();
-            ImGui.TextUnformatted($"{m.Role.ToUpperInvariant()}: {m.Content}");
+            ImGui.TextUnformatted($"{label}: {m.Content}");
             ImGui.PopTextWrapPos();
             ImGui.Separator();
         }
         if (responseBuffer.Length > 0)
         {
+            var aiName = string.IsNullOrWhiteSpace(config.AiDisplayName) ? "AI Nunu" : config.AiDisplayName;
             ImGui.PushTextWrapPos();
-            ImGui.TextUnformatted($"ASSISTANT: {responseBuffer}");
+            ImGui.TextUnformatted($"{aiName}: {responseBuffer}");
             ImGui.PopTextWrapPos();
             ImGui.Separator();
         }
@@ -89,7 +94,6 @@ public sealed class ChatWindow : Window
             ImGui.TextDisabled($"Model: {config.Model} | Streaming: {config.StreamResponses} | Theme: {config.ThemeName}");
             if (ImGui.Button("Settings"))
             {
-                // FIX: don't invoke UiBuilder.OpenConfigUi (it's an event). Use helper.
                 Plugin.OpenSettingsWindow();
             }
             ImGui.SameLine();

@@ -1,7 +1,6 @@
-﻿using Dalamud.Interface.Windowing;
-using System;
-using System.Buffers;
+﻿using System;
 using System.Linq;
+using Dalamud.Interface.Windowing;
 
 namespace AiCompanionPlugin;
 
@@ -42,6 +41,13 @@ public sealed class SettingsWindow : Window
         if (ImGui.SliderInt("Max History", ref maxHist, 2, 64)) { config.MaxHistoryMessages = maxHist; }
         bool stream = config.StreamResponses;
         if (ImGui.Checkbox("Stream Responses (SSE)", ref stream)) { config.StreamResponses = stream; }
+
+        // Display name
+        var aiName = config.AiDisplayName ?? "AI Nunu";
+        if (ImGui.InputText("AI Display Name", ref aiName, 64))
+        {
+            config.AiDisplayName = aiName;
+        }
 
         ImGui.Spacing();
 

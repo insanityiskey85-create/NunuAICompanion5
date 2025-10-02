@@ -7,7 +7,7 @@ namespace AiCompanionPlugin;
 [Serializable]
 public sealed class Configuration : IPluginConfiguration
 {
-    public int Version { get; set; } = 2;
+    public int Version { get; set; } = 3;
 
     // Backend settings
     public string BackendBaseUrl { get; set; } = "http://127.0.0.1:11434";
@@ -30,6 +30,9 @@ public sealed class Configuration : IPluginConfiguration
     public bool AutoSaveMemory { get; set; } = true;
     public int MaxMemories { get; set; } = 256;
     public string MemoriesFileRelative { get; set; } = "memories.json";
+
+    // Display
+    public string AiDisplayName { get; set; } = "AI Nunu";
 
     [NonSerialized] private IDalamudPluginInterface? pluginInterface;
 

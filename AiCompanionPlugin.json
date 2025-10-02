@@ -9,5 +9,5 @@
   "ApplicableVersion": "any",
   "Tags": [ "AI", "chat", "companion" ],
   "Changelog": "Initial build with local Dalamud path and VS solution.",
-  "Version": "1.0.0.5"
+  "Version": "1.0.0.6"
 }

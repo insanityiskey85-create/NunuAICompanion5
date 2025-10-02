@@ -9,8 +9,7 @@ using Dalamud.Plugin.Services;
 namespace AiCompanionPlugin;
 
 /// <summary>
-/// Outbound-only chat pipe. Routes text to PARTY chat using ICommandManager.ProcessCommand("/p ...").
-/// No listeners, no subscriptions.
+/// Outbound-only router to PARTY chat. Uses ICommandManager.ProcessCommand("/p ...").
 /// </summary>
 public sealed class ChatPipe
 {
@@ -25,58 +24,110 @@ public sealed class ChatPipe
         this.config = config;
     }
 
-    public async Task SendToPartyAsync(string? text, CancellationToken token = default)
+    /// <summary>
+    /// Send text to PARTY, chunked and delayed.
+    /// addPrefix=true prepends "[AI Nunu] " (or AiDisplayName) to the first chunk.
+    /// </summary>
+    public async Task SendToPartyAsync(string? text, CancellationToken token = default, bool addPrefix = true)
     {
         if (!config.EnablePartyPipe) throw new InvalidOperationException("Party pipe is disabled in settings.");
         if (string.IsNullOrWhiteSpace(text)) return;
 
+        var prefix = addPrefix
+            ? (string.IsNullOrWhiteSpace(config.AiDisplayName) ? "[AI Nunu] " : $"[{config.AiDisplayName}] ")
+            : string.Empty;
+
         text = text.Replace("\r\n", "\n").Trim();
 
-        foreach (var chunk in Chunk(text, Math.Max(64, config.PartyChunkSize)))
+        var chunks = ChunkSmart(text, Math.Max(64, config.PartyChunkSize - prefix.Length));
+        bool first = true;
+
+        foreach (var raw in chunks)
         {
             token.ThrowIfCancellationRequested();
-            // Force party channel via command
-            var line = "/p " + chunk;
-            commands.ProcessCommand(line);
-            log.Info($"PartyPipe sent {chunk.Length} chars.");
+            var line = first ? prefix + raw : "…" + raw;
+            first = false;
+
+            commands.ProcessCommand("/p " + line);
+            log.Info($"PartyPipe sent {line.Length} chars.");
             await Task.Delay(Math.Max(200, config.PartyPostDelayMs), token).ConfigureAwait(false);
         }
     }
 
-    private static IEnumerable<string> Chunk(string s, int n)
+    private static IEnumerable<string> ChunkSmart(string text, int max)
     {
-        if (s.Length <= n) { yield return s; yield break; }
-        var words = s.Split(' ');
+        if (text.Length <= max) { yield return text; yield break; }
+
+        var sentences = SplitSentences(text);
         var sb = new StringBuilder();
-        foreach (var w in words)
+
+        foreach (var s in sentences)
         {
-            if (sb.Length + w.Length + 1 > n)
+            if (s.Length > max)
             {
-                if (sb.Length > 0)
-                {
-                    yield return sb.ToString().TrimEnd();
-                    sb.Clear();
-                }
-                if (w.Length > n)
-                {
-                    int pos = 0;
-                    while (pos < w.Length)
-                    {
-                        var take = Math.Min(n, w.Length - pos);
-                        yield return w.Substring(pos, take);
-                        pos += take;
-                    }
-                }
-                else
-                {
-                    sb.Append(w).Append(' ');
-                }
+                foreach (var chunk in ChunkWords(s, max))
+                    yield return chunk;
             }
             else
             {
-                sb.Append(w).Append(' ');
+                if (sb.Length + s.Length + 1 <= max)
+                {
+                    if (sb.Length > 0) sb.Append(' ');
+                    sb.Append(s);
+                }
+                else
+                {
+                    if (sb.Length > 0) { yield return sb.ToString(); sb.Clear(); }
+                    sb.Append(s);
+                }
             }
         }
-        if (sb.Length > 0) yield return sb.ToString().TrimEnd();
+        if (sb.Length > 0) yield return sb.ToString();
+    }
+
+    private static IEnumerable<string> ChunkWords(string s, int max)
+    {
+        var words = s.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var sb = new StringBuilder();
+        foreach (var w in words)
+        {
+            if (w.Length > max)
+            {
+                if (sb.Length > 0) { yield return sb.ToString(); sb.Clear(); }
+                int p = 0;
+                while (p < w.Length)
+                {
+                    int take = Math.Min(max, w.Length - p);
+                    yield return w.Substring(p, take);
+                    p += take;
+                }
+            }
+            else if (sb.Length + w.Length + 1 > max)
+            {
+                yield return sb.ToString();
+                sb.Clear();
+                sb.Append(w);
+            }
+            else
+            {
+                if (sb.Length > 0) sb.Append(' ');
+                sb.Append(w);
+            }
+        }
+        if (sb.Length > 0) yield return sb.ToString();
+    }
+
+    private static IEnumerable<string> SplitSentences(string text)
+    {
+        var t = text.Replace("\r\n", "\n");
+        var parts = t.Split(new[] { ". ", "! ", "? ", "\n" }, StringSplitOptions.None);
+        for (int i = 0; i < parts.Length; i++)
+        {
+            var seg = parts[i].Trim();
+            if (seg.Length == 0) continue;
+            if (i < parts.Length - 1 && !t.Contains('\n'))
+                seg += ".";
+            yield return seg;
+        }
     }
 }

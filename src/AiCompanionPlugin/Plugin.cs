@@ -19,7 +19,13 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IPluginLog PluginLog { get; private set; } = null!;
     [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
 
-    public PartyListener PartyListener => partyListener;
+    public PartyListener PartyListener
+    {
+        get
+        {
+            return partyListener;
+        }
+    }
 
     private static Plugin? Instance;
 

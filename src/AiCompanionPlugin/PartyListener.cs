@@ -9,8 +9,9 @@ using Dalamud.Plugin.Services;
 namespace AiCompanionPlugin;
 
 /// <summary>
-/// Listens to PARTY chat. When a message begins with the trigger (e.g., "!AI Nunu"),
-/// and the sender is on the whitelist, sends the remainder to AI, then posts the reply to party via ChatPipe.
+/// Listens to PARTY only. On trigger by whitelisted caller:
+/// 1) (optional) Echoes caller's prompt to /p using the caller's name.
+/// 2) Queries AI and replies with formatted line addressing the caller.
 /// </summary>
 public sealed class PartyListener : IDisposable
 {
@@ -28,7 +29,7 @@ public sealed class PartyListener : IDisposable
         this.client = client;
         this.pipe = pipe;
 
-        chat.ChatMessage += OnChatMessage;
+        this.chat.ChatMessage += OnChatMessage;
     }
 
     private void OnChatMessage(XivChatType type, int timestamp, ref SeString sender, ref SeString message, ref bool isHandled)
@@ -43,36 +44,28 @@ public sealed class PartyListener : IDisposable
             if (!config.EnablePartyListener) return;
             if (type != XivChatType.Party) return;
 
-            // Raw values
-            var senderName = NormalizeName(sender.TextValue); // "Name Lastname" or "Name Lastname@World"
-            var msg = (message?.TextValue ?? string.Empty).Trim();
-
+            var senderName = NormalizeName(sender.TextValue); // "First Last"
+            var msg = (message.TextValue ?? string.Empty).Trim();
             if (string.IsNullOrEmpty(msg)) return;
 
-            // Trigger match at start (case-insensitive)
             var trigger = config.PartyTrigger ?? "!AI Nunu";
             if (string.IsNullOrWhiteSpace(trigger)) return;
             if (!msg.StartsWith(trigger, StringComparison.OrdinalIgnoreCase)) return;
 
-            // Whitelist check (name only; ignore @World if present)
-            var allowed = config.PartyWhitelist?.Any() == true
-                && config.PartyWhitelist.Any(w => string.Equals(NormalizeName(w), senderName, StringComparison.OrdinalIgnoreCase));
-
+            var allowed = (config.PartyWhitelist?.Any() ?? false) &&
+                          config.PartyWhitelist.Any(w =>
+                              string.Equals(NormalizeName(w), senderName, StringComparison.OrdinalIgnoreCase));
             if (!allowed)
             {
                 log.Info($"PartyListener: blocked non-whitelisted sender '{sender.TextValue}'.");
                 return;
             }
 
-            // Extract prompt after trigger text
             var prompt = msg.Substring(trigger.Length).TrimStart(':', ' ', '-', '—').Trim();
-            if (string.IsNullOrWhiteSpace(prompt))
-                return;
+            if (string.IsNullOrWhiteSpace(prompt)) return;
+            if (!config.PartyAutoReply) return;
 
-            if (!config.PartyAutoReply)
-                return;
-
-            _ = RespondAsync(prompt);
+            _ = RespondAsync(prompt, senderName);
         }
         catch (Exception ex)
         {
@@ -80,22 +73,41 @@ public sealed class PartyListener : IDisposable
         }
     }
 
-    private async Task RespondAsync(string prompt)
+    private async Task RespondAsync(string prompt, string caller)
     {
         try
         {
-            // No history: keep simple and fast for party replies
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(45));
-            var reply = await client.ChatOnceAsync(new System.Collections.Generic.List<ChatMessage>(), prompt, cts.Token).ConfigureAwait(false);
-            reply = (reply ?? "").Trim();
+
+            // 1) Echo caller's prompt (optional), *without* AI prefix
+            if (config.PartyEchoCallerPrompt)
+            {
+                var echo = (config.PartyCallerEchoFormat ?? "{caller} -> {ai}: {prompt}")
+                    .Replace("{caller}", caller)
+                    .Replace("{ai}", string.IsNullOrWhiteSpace(config.AiDisplayName) ? "AI Nunu" : config.AiDisplayName)
+                    .Replace("{prompt}", prompt);
+                await pipe.SendToPartyAsync(echo, cts.Token, addPrefix: false).ConfigureAwait(false);
+            }
+
+            // 2) Ask AI (quick single-shot)
+            var addressedPrompt = $"Caller: {caller}\n\n{prompt}";
+            var reply = await client.ChatOnceAsync(
+                new System.Collections.Generic.List<ChatMessage>(),
+                addressedPrompt,
+                cts.Token).ConfigureAwait(false);
+
+            reply = (reply ?? string.Empty).Trim();
             if (reply.Length == 0) return;
 
-            await pipe.SendToPartyAsync(reply, cts.Token).ConfigureAwait(false);
+            // 3) Format reply (AI prefix kept by ChatPipe)
+            var text = (config.PartyAiReplyFormat ?? "{ai} -> {caller}: {reply}")
+                .Replace("{caller}", caller)
+                .Replace("{ai}", string.IsNullOrWhiteSpace(config.AiDisplayName) ? "AI Nunu" : config.AiDisplayName)
+                .Replace("{reply}", reply);
+
+            await pipe.SendToPartyAsync(text, cts.Token, addPrefix: true).ConfigureAwait(false);
         }
-        catch (OperationCanceledException)
-        {
-            // quiet
-        }
+        catch (OperationCanceledException) { }
         catch (Exception ex)
         {
             log.Error(ex, "PartyListener RespondAsync error");
@@ -104,8 +116,7 @@ public sealed class PartyListener : IDisposable
 
     private static string NormalizeName(string name)
     {
-        // Strip @World suffix and condense spaces
-        var n = name ?? "";
+        var n = name ?? string.Empty;
         var at = n.IndexOf('@');
         if (at >= 0) n = n.Substring(0, at);
         return string.Join(' ', n.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries));

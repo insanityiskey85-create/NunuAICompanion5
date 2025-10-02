@@ -8,7 +8,7 @@ namespace AiCompanionPlugin;
 [Serializable]
 public sealed class Configuration : IPluginConfiguration
 {
-    public int Version { get; set; } = 6;
+    public int Version { get; set; } = 7;
 
     // Backend
     public string BackendBaseUrl { get; set; } = "http://127.0.0.1:11434";
@@ -42,7 +42,7 @@ public sealed class Configuration : IPluginConfiguration
     public string ChronicleFileRelative { get; set; } = "chronicle.json";
     public string ChronicleStyle { get; set; } = "Canon";
 
-    // Party Chat Pipe (outbound only)
+    // Party Chat Pipe (outbound)
     public bool EnablePartyPipe { get; set; } = false;
     public bool ConfirmBeforePartyPost { get; set; } = true;
     public int PartyChunkSize { get; set; } = 440;
@@ -51,8 +51,13 @@ public sealed class Configuration : IPluginConfiguration
     // Party Listener (inbound)
     public bool EnablePartyListener { get; set; } = false;
     public string PartyTrigger { get; set; } = "!AI Nunu";
-    public List<string> PartyWhitelist { get; set; } = new() { "Your Name Here" }; // character names only
-    public bool PartyAutoReply { get; set; } = true; // automatically reply when triggered
+    public List<string> PartyWhitelist { get; set; } = new() { "Your Name Here" };
+    public bool PartyAutoReply { get; set; } = true;
+
+    // NEW: Formatting for party attribution
+    public bool PartyEchoCallerPrompt { get; set; } = true;
+    public string PartyCallerEchoFormat { get; set; } = "{caller} \u2192 {ai}: {prompt}";
+    public string PartyAiReplyFormat { get; set; } = "{ai} \u2192 {caller}: {reply}";
 
     [NonSerialized] private IDalamudPluginInterface? pluginInterface;
     public void Initialize(IDalamudPluginInterface pi) => pluginInterface = pi;

@@ -25,7 +25,20 @@
 			<HintPath>Libs\FFXIVClientStructs.dll</HintPath>
 			<Private>false</Private>
 		</Reference>
-	</ItemGroup>
+			<Reference Include="Dalamud">
+				<HintPath>$(DalamudLibPath)\Dalamud.dll</HintPath>
+				<Private>false</Private>
+			</Reference>
+			<Reference Include="Dalamud.Interface">
+				<HintPath>$(DalamudLibPath)\Dalamud.Interface.dll</HintPath>
+				<Private>false</Private>
+			</Reference>
+			<!-- Use Dalamud’s ImGui bindings instead of ImGui.NET.dll -->
+			<Reference Include="Dalamud.Bindings.ImGui">
+				<HintPath>$(DalamudLibPath)\Dalamud.Bindings.ImGui.dll</HintPath>
+				<Private>false</Private>
+			</Reference>
+		</ItemGroup>
 
 	<Target Name="CopyDalamudRefs" BeforeTargets="Build">
 		<PropertyGroup>

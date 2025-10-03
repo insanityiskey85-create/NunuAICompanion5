@@ -1,5 +1,5 @@
-﻿using Dalamud.Interface.Windowing;
-using Dalamud.Bindings.ImGui;
+﻿using System.Numerics;
+using Dalamud.Interface.Windowing;
 
 namespace AiCompanionPlugin;
 
@@ -8,23 +8,23 @@ public sealed class SettingsWindow : Window
     private readonly Configuration config;
     private readonly PersonaManager persona;
 
-    public bool IsOpen { get; private set; }
-
-    public SettingsWindow(string name) : base(name)
-    {
-    }
-
     public SettingsWindow(Configuration config, PersonaManager persona)
-        : base("AI Companion — Settings")
+        : base("AI Companion Settings", ImGuiWindowFlags.AlwaysAutoResize)
     {
         this.config = config;
         this.persona = persona;
-        this.IsOpen = false;
+
+        SizeConstraints = new WindowSizeConstraints
+        {
+            MinimumSize = new Vector2(420, 200),
+            MaximumSize = new Vector2(float.MaxValue, float.MaxValue)
+        };
     }
 
-    public SettingsWindow(string name, ImGuiWindowFlags flags = ImGuiWindowFlags.None, bool forceMainWindow = false) : base(name, flags, forceMainWindow)
-    {
-    }
+    // Helpers so callers never have to set IsOpen directly
+    public void Show() => this.IsOpen = true;
+    public void Hide() => this.IsOpen = false;
+    public void Toggle() => this.IsOpen = !this.IsOpen;
 
     public override void Draw()
     {
@@ -32,36 +32,50 @@ public sealed class SettingsWindow : Window
         ImGui.Separator();
 
         var baseUrl = config.BackendBaseUrl;
-        if (ImGui.InputText("Base URL", ref baseUrl, 512)) { config.BackendBaseUrl = baseUrl; config.Save(); }
+        if (ImGui.InputText("Base URL", ref baseUrl, 512))
+        {
+            config.BackendBaseUrl = baseUrl; config.Save();
+        }
 
         var apiKey = config.ApiKey;
-        if (ImGui.InputText("API Key", ref apiKey, 512, ImGuiInputTextFlags.Password)) { config.ApiKey = apiKey; config.Save(); }
+        if (ImGui.InputText("API Key", ref apiKey, 512, ImGuiInputTextFlags.Password))
+        {
+            config.ApiKey = apiKey; config.Save();
+        }
 
         var model = config.Model;
-        if (ImGui.InputText("Model", ref model, 128)) { config.Model = model; config.Save(); }
+        if (ImGui.InputText("Model", ref model, 128))
+        {
+            config.Model = model; config.Save();
+        }
 
-        ImGui.Separator();
+        ImGui.Spacing();
         ImGui.Text("Chat");
         ImGui.Separator();
 
-        var maxHist = config.MaxHistoryMessages;
-        if (ImGui.DragInt("Max History", ref maxHist, 1, 2, 64))
+        int maxHist = config.MaxHistoryMessages;
+        if (ImGui.SliderInt("Max History", ref maxHist, 2, 64))
         {
-            if (maxHist < 2) maxHist = 2; if (maxHist > 64) maxHist = 64;
             config.MaxHistoryMessages = maxHist; config.Save();
         }
 
-        var stream = config.StreamResponses;
-        if (ImGui.Checkbox("Stream Responses (SSE)", ref stream)) { config.StreamResponses = stream; config.Save(); }
+        bool stream = config.StreamResponses;
+        if (ImGui.Checkbox("Stream Responses (SSE)", ref stream))
+        {
+            config.StreamResponses = stream; config.Save();
+        }
 
-        ImGui.Separator();
+        ImGui.Spacing();
         ImGui.Text("Persona");
         ImGui.Separator();
 
         var rel = config.PersonaFileRelative;
-        if (ImGui.InputText("persona.txt (relative)", ref rel, 260)) { config.PersonaFileRelative = rel; config.Save(); }
+        if (ImGui.InputText("persona.txt (relative)", ref rel, 260))
+        {
+            config.PersonaFileRelative = rel; config.Save();
+        }
 
-        ImGui.TextWrapped("Edit persona.txt in the plugin config folder. Changes hot-reload.");
+        ImGui.TextWrapped("Edit your persona.txt in the plugin config folder. Changes hot-reload.");
         if (ImGui.Button("Open Config Folder"))
         {
             try
@@ -77,7 +91,7 @@ public sealed class SettingsWindow : Window
             catch { }
         }
 
-        ImGui.Separator();
-        ImGui.TextDisabled("Private by default. Enable Party/Say routing from main window if needed.");
+        ImGui.Spacing();
+        ImGui.TextDisabled("No whitelist. No chat channel hooks. Private window only.");
     }
 }

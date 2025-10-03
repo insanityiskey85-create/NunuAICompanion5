@@ -297,7 +297,12 @@ public sealed class AiClient : IDisposable
 
 public interface IPluginLog
 {
+    void Debug(string v);
+    void Error(Exception ex, string v, string commandLine);
+    void Error(Exception ex, string v);
     void Info(string v);
+    void Information(string v);
+    void Information(string v, string rawLine);
     void Warning(string v);
     void Warning(Exception ex, string v);
 }

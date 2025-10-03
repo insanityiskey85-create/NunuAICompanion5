@@ -33,7 +33,7 @@ internal static class NativeChatPipe
             // Fallback path: use Dalamud's command manager to process a chat command.
             // This avoids FFXIVClientStructs entirely and will compile everywhere.
             Plugin.CommandManager.ProcessCommand(rawLine);
-            Plugin.PluginLog.Info("[NativeChatPipe:Fallback] ProcessCommand -> \"{0}\"", rawLine);
+            Plugin.PluginLog.Information("[NativeChatPipe:Fallback] ProcessCommand -> \"{0}\"", rawLine);
             return true;
         }
         catch (Exception ex)

@@ -8,6 +8,8 @@ public sealed class SettingsWindow : Window
     private readonly Configuration config;
     private readonly PersonaManager persona;
 
+    public bool IsOpen { get; private set; }
+
     public SettingsWindow(string name) : base(name)
     {
     }

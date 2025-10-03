@@ -294,3 +294,10 @@ public sealed class AiClient : IDisposable
         return msgs;
     }
 }
+
+public interface IPluginLog
+{
+    void Info(string v);
+    void Warning(string v);
+    void Warning(Exception ex, string v);
+}

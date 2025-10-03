@@ -27,6 +27,7 @@ public sealed class ChatWindow : Window
     // modal state
     private bool confirmPartyModal = false;
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     public ChatWindow(IPluginLog log, AiClient client, Configuration config, PersonaManager persona, MemoryManager memory, ChronicleManager chronicle, ChatPipe partyPipe)
         : base("AI Companion", ImGuiWindowFlags.None)
     {
@@ -38,6 +39,7 @@ public sealed class ChatWindow : Window
         };
     }
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     public override void Draw()
     {
         var pops = ThemePalette.ApplyTheme(config.ThemeName ?? "Eorzean Night");
@@ -174,6 +176,7 @@ public sealed class ChatWindow : Window
         return false;
     }
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     private async Task SendLastAssistantToPartyAsync(string text)
     {
         try
@@ -187,6 +190,7 @@ public sealed class ChatWindow : Window
         }
     }
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     private async Task SendAsync()
     {
         var text = input.Trim();

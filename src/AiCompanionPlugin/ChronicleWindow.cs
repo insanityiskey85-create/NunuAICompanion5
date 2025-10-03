@@ -4,6 +4,7 @@ using System.Numerics;
 using System.Text;
 using Dalamud.Interface.Windowing;
 
+
 namespace AiCompanionPlugin;
 
 public sealed class ChronicleWindow : Window
@@ -15,6 +16,7 @@ public sealed class ChronicleWindow : Window
     private int selectedIndex = -1;
     private string exportStatus = string.Empty;
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     public ChronicleWindow(Configuration config, ChronicleManager manager)
         : base("AI Nunu — Chronicle", ImGuiWindowFlags.None)
     {
@@ -27,6 +29,7 @@ public sealed class ChronicleWindow : Window
         };
     }
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     public override void Draw()
     {
         var pops = ThemePalette.ApplyTheme(config.ThemeName ?? "Eorzean Night");

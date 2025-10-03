@@ -16,7 +16,9 @@ public sealed class PartyListener : IDisposable
     private readonly Configuration config;
     private readonly AiClient client;
     private readonly ChatPipe pipe;
+    private static readonly char[] separator = new[] { ' ' };
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     public PartyListener(IChatGui chat, IPluginLog log, Configuration config, AiClient client, ChatPipe pipe)
     {
         this.chat = chat;
@@ -32,32 +34,7 @@ public sealed class PartyListener : IDisposable
         throw new NotImplementedException();
     }
 
-    private void OnChatMessage(XivChatType type, uint senderId, ref SeString sender, ref SeString message, ref bool isHandled)
-    {
-        try
-        {
-            if (!config.EnablePartyListener) return;
-            if (type != XivChatType.Party) return;
-
-            var senderName = NormalizeName(sender.TextValue);
-            var msg = (message.TextValue ?? string.Empty).Trim();
-            if (string.IsNullOrEmpty(msg)) return;
-
-            var trigger = config.PartyTrigger ?? "!AI Nunu";
-            if (!msg.StartsWith(trigger, StringComparison.OrdinalIgnoreCase)) return;
-
-            var allowed = (config.PartyWhitelist?.Any() ?? false) &&
-                          config.PartyWhitelist.Any(w => string.Equals(NormalizeName(w), senderName, StringComparison.OrdinalIgnoreCase));
-            if (!allowed) { log.Info($"PartyListener: blocked '{sender.TextValue}'."); return; }
-
-            var prompt = msg.Substring(trigger.Length).TrimStart(':', ' ', '-', '—').Trim();
-            if (string.IsNullOrWhiteSpace(prompt) || !config.PartyAutoReply) return;
-
-            _ = RespondStreamAsync(prompt, senderName);
-        }
-        catch (Exception ex) { log.Error(ex, "PartyListener error"); }
-    }
-
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     private async Task RespondStreamAsync(string prompt, string caller)
     {
         try
@@ -76,7 +53,7 @@ public sealed class PartyListener : IDisposable
             var format = config.PartyAiReplyFormat ?? "{ai} -> {caller}: {reply}";
             var header = format.Replace("{ai}", ai).Replace("{caller}", caller).Replace("{reply}", string.Empty);
 
-            var tokens = client.ChatStreamAsync(new List<ChatMessage>(), $"Caller: {caller}\n\n{prompt}", cts.Token);
+            var tokens = client.ChatStreamAsync([], $"Caller: {caller}\n\n{prompt}", cts.Token);
             await pipe.SendStreamingToAsync(ChatRoute.Party, tokens, header, cts.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) { }
@@ -87,8 +64,9 @@ public sealed class PartyListener : IDisposable
     {
         var n = name ?? string.Empty;
         var at = n.IndexOf('@'); if (at >= 0) n = n[..at];
-        return string.Join(' ', n.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries));
+        return string.Join(' ', n.Split(separator, StringSplitOptions.RemoveEmptyEntries));
     }
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     public void Dispose() => chat.ChatMessage -= OnChatMessage;
 }

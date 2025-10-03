@@ -11,16 +11,17 @@ namespace AiCompanionPlugin;
 
 public sealed class Plugin : IDalamudPlugin
 {
-    public string Name => "AI Companion";
+    public static string Name => "AI Companion";
 
-    [PluginService] internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
-    [PluginService] internal static ICommandManager CommandManager { get; private set; } = null!;
-    [PluginService] internal static IFramework Framework { get; private set; } = null!;
-    [PluginService] internal static IPluginLog PluginLog { get; private set; } = null!;
-    [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
+    [PluginService][System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")] internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
+    [PluginService][System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")] internal static ICommandManager CommandManager { get; private set; } = null!;
+    [PluginService][System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")] internal static IFramework Framework { get; private set; } = null!;
+    [PluginService][System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")] internal static IPluginLog PluginLog { get; private set; } = null!;
+    [PluginService][System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")] internal static IChatGui ChatGui { get; private set; } = null!;
 
     private static Plugin? Instance;
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     private readonly WindowSystem windowSystem = new("AI Companion");
     private readonly Configuration config;
     private readonly PersonaManager personaManager;
@@ -38,11 +39,12 @@ public sealed class Plugin : IDalamudPlugin
     private const string CommandParty = "/aiparty";
     private const string CommandSay = "/aisay";
 
-    public Plugin(IDisposable disposable)
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
+    public Plugin(IDisposable disposable, IDalamudPluginInterface pluginInterface)
     {
         Instance = this;
 
-        config = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
+        config = pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
         config.Initialize(PluginInterface);
 
         personaManager = new PersonaManager(PluginInterface, PluginLog, config);
@@ -76,6 +78,7 @@ public sealed class Plugin : IDalamudPlugin
         CommandManager.AddHandler(CommandSay, new CommandInfo(OnSay) { HelpMessage = "Send text to Say (/aisay message)" });
     }
 
+    private void OnSay(string command, string arguments) => throw new NotImplementedException();
     private void OnChat(string command, string args) => chatWindow.IsOpen = true;
     private void OnChron(string command, string args) => chronicleWindow.IsOpen = true;
 
@@ -85,14 +88,6 @@ public sealed class Plugin : IDalamudPlugin
         var msg = (args ?? string.Empty).Trim();
         if (string.IsNullOrWhiteSpace(msg)) { ChatGui.PrintError("[AI Companion] /aiparty <message>"); return; }
         _ = SafeRouteSendAsync(ChatRoute.Party, msg);
-    }
-
-    private void OnSay(string command, string args)
-    {
-        if (!config.EnableSayPipe) { ChatGui.PrintError("[AI Companion] Say Pipe is disabled."); return; }
-        var msg = (args ?? string.Empty).Trim();
-        if (string.IsNullOrWhiteSpace(msg)) { ChatGui.PrintError("[AI Companion] /aisay <message>"); return; }
-        _ = SafeRouteSendAsync(ChatRoute.Say, msg);
     }
 
     private async Task SafeRouteSendAsync(ChatRoute route, string text)

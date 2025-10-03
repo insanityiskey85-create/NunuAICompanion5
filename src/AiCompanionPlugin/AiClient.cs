@@ -205,6 +205,7 @@ public sealed class AiClient : IDisposable
         }
     }
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     private async Task<(BackendKind kind, string url)> EnsureResolvedAsync(CancellationToken token)
     {
         if (resolved is { } r) return r;

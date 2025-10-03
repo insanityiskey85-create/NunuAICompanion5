@@ -25,6 +25,7 @@ public sealed class ChronicleManager : IDisposable
 
     public IReadOnlyList<ChronicleEntry> Entries => entries;
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     private string GetChroniclePath()
     {
         var dir = pi.GetPluginConfigDirectory();
@@ -54,6 +55,7 @@ public sealed class ChronicleManager : IDisposable
             Save();
     }
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     public void Save()
     {
         try
@@ -68,6 +70,7 @@ public sealed class ChronicleManager : IDisposable
         }
     }
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     public void Load()
     {
         try

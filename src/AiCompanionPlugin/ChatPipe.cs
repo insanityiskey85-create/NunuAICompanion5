@@ -30,6 +30,7 @@ public sealed class ChatPipe
 
     public OutboundDispatcher Dispatcher => dispatcher;
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     public ChatPipe(ICommandManager commands, IPluginLog log, Configuration config, IFramework framework, IChatGui chat)
     {
         this.commands = commands;
@@ -63,6 +64,7 @@ public sealed class ChatPipe
     }
 
     /// <summary>Send a whole message to the route, chunked. Returns false if route disabled.</summary>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     public async Task<bool> SendToAsync(ChatRoute route, string? text, CancellationToken token = default, bool addPrefix = true)
     {
         var (cmd, chunkSize, delay, _, _, enabled, aiPrefix) = GetRouteParams(route);
@@ -80,6 +82,7 @@ public sealed class ChatPipe
     }
 
     /// <summary>Stream tokens to route with header on first line and continuation thereafter.</summary>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     public async Task<bool> SendStreamingToAsync(ChatRoute route, IAsyncEnumerable<string> tokens, string headerForFirstLine, CancellationToken token = default)
     {
         var (cmd, chunkSize, delay, flushChars, flushMs, enabled, aiPrefix) = GetRouteParams(route);
@@ -143,6 +146,7 @@ public sealed class ChatPipe
     }
 
     // ---- core send path (queued to dispatcher) ----
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     private Task SendLineAsync(string cmdPrefix, string line, CancellationToken token)
     {
         var text = line;
@@ -304,7 +308,9 @@ public sealed class ChatPipe
 
     public void Dispose() => Dispatcher.Dispose();
 
+#pragma warning disable CS1998 // Async method lacks 'await' operators and will run synchronously
     internal async Task SendToPartyAsync(string text, CancellationToken token)
+#pragma warning restore CS1998 // Async method lacks 'await' operators and will run synchronously
     {
         throw new NotImplementedException();
     }

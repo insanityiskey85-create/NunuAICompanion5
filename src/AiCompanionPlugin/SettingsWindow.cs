@@ -5,30 +5,19 @@ using Dalamud.Interface.Windowing;
 
 namespace AiCompanionPlugin;
 
-public sealed class SettingsWindow : Window
+[method: System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
+public sealed class SettingsWindow(Configuration config, PersonaManager persona, MemoryManager memory, ChronicleManager chronicle) : Window("AI Companion Settings", ImGuiWindowFlags.AlwaysAutoResize)
 {
-    private readonly Configuration config;
-    private readonly PersonaManager persona;
-    private readonly MemoryManager memory;
-    private readonly ChronicleManager chronicle;
+    private readonly Configuration config = config;
+    private readonly PersonaManager persona = persona;
+    private readonly MemoryManager memory = memory;
+    private readonly ChronicleManager chronicle = chronicle;
 
     private string status = string.Empty;
 
     // temp editors
-    private string partyWhitelistEdit = string.Empty;
-    private string sayWhitelistEdit = string.Empty;
-
-    public SettingsWindow(Configuration config, PersonaManager persona, MemoryManager memory, ChronicleManager chronicle)
-        : base("AI Companion Settings", ImGuiWindowFlags.AlwaysAutoResize)
-    {
-        this.config = config;
-        this.persona = persona;
-        this.memory = memory;
-        this.chronicle = chronicle;
-
-        partyWhitelistEdit = string.Join(Environment.NewLine, config.PartyWhitelist ?? new());
-        sayWhitelistEdit = string.Join(Environment.NewLine, config.SayWhitelist ?? new());
-    }
+    private string partyWhitelistEdit = string.Join(Environment.NewLine, config.PartyWhitelist ?? []);
+    private string sayWhitelistEdit = string.Join(Environment.NewLine, config.SayWhitelist ?? []);
 
     public override void Draw()
     {

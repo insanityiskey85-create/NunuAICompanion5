@@ -27,6 +27,7 @@ public sealed class PersonaManager : System.IDisposable
         StartWatcher();
     }
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     private void EnsurePersonaFile()
     {
         var path = config.GetPersonaAbsolutePath(pi);
@@ -42,6 +43,7 @@ public sealed class PersonaManager : System.IDisposable
         LoadPersona(path);
     }
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     private void StartWatcher()
     {
         var dir = pi.GetPluginConfigDirectory();
@@ -56,12 +58,14 @@ public sealed class PersonaManager : System.IDisposable
         watcher.Renamed += OnPersonaChanged;
     }
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     private void OnPersonaChanged(object sender, FileSystemEventArgs e)
     {
         try { LoadPersona(e.FullPath); }
         catch (System.Exception ex) { log.Error(ex, "Failed to reload persona.txt"); }
     }
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     private void LoadPersona(string path)
     {
         if (!File.Exists(path)) return;

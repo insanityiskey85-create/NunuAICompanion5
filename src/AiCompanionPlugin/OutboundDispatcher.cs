@@ -20,6 +20,7 @@ public sealed class OutboundDispatcher : IDisposable
     // Minimum spacing between actual sends to avoid throttles.
     public int MinIntervalMs { get; set; } = 250;
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     public OutboundDispatcher(IFramework framework, IPluginLog log)
     {
         this.framework = framework;
@@ -33,6 +34,7 @@ public sealed class OutboundDispatcher : IDisposable
         work.Enqueue(action);
     }
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     private void OnUpdate(IFramework _)
     {
         // Drain only a few per frame (we just need to ensure we're out of the chat detour call stack)
@@ -52,6 +54,7 @@ public sealed class OutboundDispatcher : IDisposable
         }
     }
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     public void Dispose()
     {
         framework.Update -= OnUpdate;

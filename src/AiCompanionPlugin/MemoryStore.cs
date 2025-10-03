@@ -19,6 +19,7 @@ public sealed class MemoryStore : IDisposable
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     public MemoryStore(IDalamudPluginInterface pi, string relativeFile)
     {
         var dir = pi.GetPluginConfigDirectory();

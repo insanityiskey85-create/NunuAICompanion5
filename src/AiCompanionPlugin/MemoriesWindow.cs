@@ -16,6 +16,7 @@ public sealed class MemoriesWindow : Window
     private (MemoryStore.MemoryEntry[] data, long version) cache = (Array.Empty<MemoryStore.MemoryEntry>(), 0);
     private long bump = 0;
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     public MemoriesWindow(MemoryStore store, Configuration config)
         : base("AI Companion – Memories", ImGuiWindowFlags.AlwaysAutoResize)
     {
@@ -29,6 +30,7 @@ public sealed class MemoriesWindow : Window
         };
     }
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     public override void Draw()
     {
         ImGui.TextDisabled($"File: {store.GetPath()}");

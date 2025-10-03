@@ -23,6 +23,7 @@ public sealed class AutoRouteListener : IDisposable
 
     private int debugCount = 0;
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     public AutoRouteListener(IChatGui chat, IPluginLog log, Configuration cfg, AiClient client, ChatPipe pipe)
     {
         this.chat = chat;
@@ -37,6 +38,7 @@ public sealed class AutoRouteListener : IDisposable
     }
 
     // API 13 delegate: (XivChatType type, int timestamp, ref SeString sender, ref SeString message, ref bool isHandled)
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     private void OnChatMessage(XivChatType type, int timestamp, ref SeString sender, ref SeString message, ref bool isHandled)
     {
         try
@@ -91,6 +93,7 @@ public sealed class AutoRouteListener : IDisposable
         }
     }
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     private async Task RespondStreamAsync(ChatRoute route, string prompt, string caller)
     {
         try
@@ -186,6 +189,7 @@ public sealed class AutoRouteListener : IDisposable
         return string.Join(' ', n.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries));
     }
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     public void Dispose()
     {
         chat.ChatMessage -= OnChatMessage;

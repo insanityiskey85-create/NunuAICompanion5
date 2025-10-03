@@ -24,6 +24,7 @@ public sealed class MemoryManager : IDisposable
 
     public IReadOnlyList<MemoryEntry> Items => items;
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     private string GetMemoriesPath()
     {
         var dir = pi.GetPluginConfigDirectory();
@@ -48,6 +49,7 @@ public sealed class MemoryManager : IDisposable
         if (config.AutoSaveMemory) Save();
     }
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     public void Save()
     {
         try
@@ -62,6 +64,7 @@ public sealed class MemoryManager : IDisposable
         }
     }
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     public void Load()
     {
         try

@@ -1,0 +1,7 @@
+﻿[*.cs]
+
+# IDE0011: Add braces
+csharp_prefer_braces = true
+
+# IDE0022: Use block body for method
+csharp_style_expression_bodied_methods = true

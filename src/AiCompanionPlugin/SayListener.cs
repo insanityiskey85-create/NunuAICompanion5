@@ -21,7 +21,9 @@ public sealed class SayListener : IDisposable
     private readonly Configuration config;
     private readonly AiClient client;
     private readonly ChatPipe pipe;
+    private static readonly char[] separator = new[] { ' ' };
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     public SayListener(IChatGui chat, IPluginLog log, Configuration config, AiClient client, ChatPipe pipe)
     {
         this.chat = chat;
@@ -38,6 +40,7 @@ public sealed class SayListener : IDisposable
         throw new NotImplementedException();
     }
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     private void OnChatMessage(XivChatType type, uint senderId, ref SeString sender, ref SeString message, ref bool isHandled)
     {
         try
@@ -62,7 +65,7 @@ public sealed class SayListener : IDisposable
                 return;
             }
 
-            var prompt = msg.Substring(trigger.Length).TrimStart(':', ' ', '-', '—').Trim();
+            var prompt = msg[trigger.Length..].TrimStart(':', ' ', '-', '—').Trim();
             if (string.IsNullOrWhiteSpace(prompt)) return;
             if (!config.SayAutoReply) return;
 
@@ -97,7 +100,7 @@ public sealed class SayListener : IDisposable
             var header = format.Replace("{ai}", ai).Replace("{caller}", caller).Replace("{reply}", string.Empty);
 
             // 3) Stream tokens to /s
-            var tokens = client.ChatStreamAsync(new List<ChatMessage>(), $"Caller: {caller}\n\n{prompt}", cts.Token);
+            var tokens = client.ChatStreamAsync([], $"Caller: {caller}\n\n{prompt}", cts.Token);
             await pipe.SendStreamingToAsync(ChatRoute.Say, tokens, header, cts.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) { }
@@ -111,8 +114,8 @@ public sealed class SayListener : IDisposable
     {
         var n = name ?? string.Empty;
         var at = n.IndexOf('@');
-        if (at >= 0) n = n.Substring(0, at);
-        return string.Join(' ', n.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries));
+        if (at >= 0) n = n[..at];
+        return string.Join(' ', n.Split(separator, StringSplitOptions.RemoveEmptyEntries));
     }
 
     public void Dispose()

@@ -89,20 +89,24 @@ public sealed class Configuration : IPluginConfiguration
 
     [NonSerialized] private IDalamudPluginInterface? pluginInterface;
     public void Initialize(IDalamudPluginInterface pi) => pluginInterface = pi;
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     public void Save() => pluginInterface?.SavePluginConfig(this);
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     public string GetPersonaAbsolutePath(IDalamudPluginInterface pi)
     {
         var dir = pi.GetPluginConfigDirectory();
         System.IO.Directory.CreateDirectory(dir);
         return System.IO.Path.Combine(dir, PersonaFileRelative);
     }
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     public string GetMemoriesAbsolutePath(IDalamudPluginInterface pi)
     {
         var dir = pi.GetPluginConfigDirectory();
         System.IO.Directory.CreateDirectory(dir);
         return System.IO.Path.Combine(dir, string.IsNullOrWhiteSpace(MemoriesFileRelative) ? "memories.json" : MemoriesFileRelative);
     }
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     public string GetChronicleAbsolutePath(IDalamudPluginInterface pi)
     {
         var dir = pi.GetPluginConfigDirectory();

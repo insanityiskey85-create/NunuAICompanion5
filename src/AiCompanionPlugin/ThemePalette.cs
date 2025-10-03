@@ -9,8 +9,8 @@ public static class ThemePalette
 
     public static readonly Dictionary<string, Theme> Presets = new()
     {
-        ["Eorzean Night"] = new("Eorzean Night", new()
-        {
+        ["Eorzean Night"] = new("Eorzean Night",
+        [
             (ImGuiCol.WindowBg, RGBA(18,19,25,255)),
             (ImGuiCol.ChildBg,  RGBA(23,24,32,255)),
             (ImGuiCol.FrameBg,  RGBA(36,38,50,255)),
@@ -35,9 +35,9 @@ public static class ThemePalette
             (ImGuiCol.Tab, RGBA(36,38,50,255)),
             (ImGuiCol.TabHovered, RGBA(80,86,118,255)),
             (ImGuiCol.TabActive, RGBA(72,78,104,255)),
-        }),
-        ["Voidglass"] = new("Voidglass", new()
-        {
+        ]),
+        ["Voidglass"] = new("Voidglass",
+        [
             (ImGuiCol.WindowBg, RGBA(8,8,10,245)),
             (ImGuiCol.ChildBg,  RGBA(16,16,24,245)),
             (ImGuiCol.FrameBg,  RGBA(24,24,36,255)),
@@ -53,9 +53,9 @@ public static class ThemePalette
             (ImGuiCol.Tab, RGBA(24,24,36,255)),
             (ImGuiCol.TabHovered, RGBA(70,70,120,220)),
             (ImGuiCol.TabActive, RGBA(60,60,110,220)),
-        }),
-        ["Maelstrom Red"] = new("Maelstrom Red", new()
-        {
+        ]),
+        ["Maelstrom Red"] = new("Maelstrom Red",
+        [
             (ImGuiCol.WindowBg, RGBA(20,14,16,255)),
             (ImGuiCol.ChildBg,  RGBA(26,18,20,255)),
             (ImGuiCol.FrameBg,  RGBA(40,24,26,255)),
@@ -68,9 +68,9 @@ public static class ThemePalette
             (ImGuiCol.HeaderHovered, RGBA(160,36,42,240)),
             (ImGuiCol.HeaderActive, RGBA(196,48,56,255)),
             (ImGuiCol.CheckMark, RGBA(255,200,200,255)),
-        }),
-        ["Gridania Moss"] = new("Gridania Moss", new()
-        {
+        ]),
+        ["Gridania Moss"] = new("Gridania Moss",
+        [
             (ImGuiCol.WindowBg, RGBA(14,18,14,255)),
             (ImGuiCol.ChildBg,  RGBA(18,22,18,255)),
             (ImGuiCol.FrameBg,  RGBA(28,36,28,255)),
@@ -82,9 +82,9 @@ public static class ThemePalette
             (ImGuiCol.Header, RGBA(60,92,60,220)),
             (ImGuiCol.HeaderHovered, RGBA(84,126,84,235)),
             (ImGuiCol.HeaderActive, RGBA(104,150,104,255)),
-        }),
-        ["Ul'dahn Ember"] = new("Ul'dahn Ember", new()
-        {
+        ]),
+        ["Ul'dahn Ember"] = new("Ul'dahn Ember",
+        [
             (ImGuiCol.WindowBg, RGBA(24,18,10,255)),
             (ImGuiCol.ChildBg,  RGBA(30,22,12,255)),
             (ImGuiCol.FrameBg,  RGBA(48,34,18,255)),
@@ -96,11 +96,11 @@ public static class ThemePalette
             (ImGuiCol.Header, RGBA(130,90,30,230)),
             (ImGuiCol.HeaderHovered, RGBA(170,120,40,245)),
             (ImGuiCol.HeaderActive, RGBA(200,140,50,255)),
-        }),
+        ]),
 
         // ===== New: Void Touched (deep void-purple with spectral accents) =====
-        ["Void Touched"] = new("Void Touched", new()
-        {
+        ["Void Touched"] = new("Void Touched",
+        [
             // backgrounds
             (ImGuiCol.WindowBg, RGBA(14, 8, 20, 255)),   // near-black purple
             (ImGuiCol.ChildBg,  RGBA(18, 10, 26, 255)),
@@ -143,17 +143,23 @@ public static class ThemePalette
             (ImGuiCol.ScrollbarGrab,       RGBA(72, 36, 108, 220)),
             (ImGuiCol.ScrollbarGrabHovered,RGBA(104, 50, 160, 235)),
             (ImGuiCol.ScrollbarGrabActive, RGBA(130, 62, 196, 255)),
-        }),
+        ]),
     };
 
     public static int ApplyTheme(string name)
     {
-        if (!Presets.TryGetValue(name, out var theme)) return 0;
+        if (!Presets.TryGetValue(name, out var theme))
+        {
+            return 0;
+        }
+
         foreach (var (target, color) in theme.Colors)
             ImGui.PushStyleColor(target, color);
         return theme.Colors.Count;
     }
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("CodeQuality", "IDE0079:Remove unnecessary suppression", Justification = "<Pending>")]
     public static void PopTheme(int count)
     {
         if (count > 0) ImGui.PopStyleColor(count);

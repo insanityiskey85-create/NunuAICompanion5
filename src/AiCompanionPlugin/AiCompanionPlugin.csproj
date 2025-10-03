@@ -6,7 +6,7 @@
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<OutputType>Library</OutputType>
-		<Version>1.0.2.0</Version>
+		<Version>1.0.2.1</Version>
 		<Authors>You</Authors>
 		<Description>Isolated AI chat companion for Dalamud.</Description>
 		<DalamudApiLevel>13</DalamudApiLevel>

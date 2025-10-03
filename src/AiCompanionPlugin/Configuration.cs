@@ -8,7 +8,7 @@ namespace AiCompanionPlugin;
 [Serializable]
 public sealed class Configuration : IPluginConfiguration
 {
-    public int Version { get; set; } = 9;
+    public int Version { get; set; } = 10;
 
     // Backend
     public string BackendBaseUrl { get; set; } = "http://127.0.0.1:11434";
@@ -26,7 +26,7 @@ public sealed class Configuration : IPluginConfiguration
     // Theme
     public string ThemeName { get; set; } = "Eorzean Night";
 
-    // Memory (per-message)
+    // Memory
     public bool EnableMemory { get; set; } = true;
     public bool AutoSaveMemory { get; set; } = true;
     public int MaxMemories { get; set; } = 256;
@@ -42,7 +42,7 @@ public sealed class Configuration : IPluginConfiguration
     public string ChronicleFileRelative { get; set; } = "chronicle.json";
     public string ChronicleStyle { get; set; } = "Canon";
 
-    // PARTY — Outbound & Inbound
+    // PARTY — Pipe & Listener
     public bool EnablePartyPipe { get; set; } = false;
     public bool ConfirmBeforePartyPost { get; set; } = true;
     public int PartyChunkSize { get; set; } = 440;
@@ -53,7 +53,7 @@ public sealed class Configuration : IPluginConfiguration
     public List<string> PartyWhitelist { get; set; } = new() { "Your Name Here" };
     public bool PartyAutoReply { get; set; } = true;
 
-    // SAY — Outbound & Inbound
+    // SAY — Pipe & Listener
     public bool EnableSayPipe { get; set; } = false;
     public int SayChunkSize { get; set; } = 440;
     public int SayPostDelayMs { get; set; } = 800;
@@ -63,7 +63,7 @@ public sealed class Configuration : IPluginConfiguration
     public List<string> SayWhitelist { get; set; } = new() { "Your Name Here" };
     public bool SayAutoReply { get; set; } = true;
 
-    // Formatting (shared)
+    // Formatting
     public bool PartyEchoCallerPrompt { get; set; } = true;
     public string PartyCallerEchoFormat { get; set; } = "{caller} \u2192 {ai}: {prompt}";
     public string PartyAiReplyFormat { get; set; } = "{ai} \u2192 {caller}: {reply}";
@@ -72,11 +72,16 @@ public sealed class Configuration : IPluginConfiguration
     public string SayCallerEchoFormat { get; set; } = "{caller} \u2192 {ai}: {prompt}";
     public string SayAiReplyFormat { get; set; } = "{ai} \u2192 {caller}: {reply}";
 
-    // Streaming thresholds (used by both)
+    // Streaming thresholds
     public int PartyStreamFlushChars { get; set; } = 180;
     public int PartyStreamMinFlushMs { get; set; } = 600;
     public int SayStreamFlushChars { get; set; } = 180;
     public int SayStreamMinFlushMs { get; set; } = 600;
+
+    // NEW: Debug/Troubleshooting
+    public bool DebugChatTap { get; set; } = true;       // log incoming chat kinds & text
+    public int DebugChatTapLimit { get; set; } = 100;    // max entries per session
+    public bool RequireWhitelist { get; set; } = true;   // if false, empty whitelist allows everyone (for testing)
 
     [NonSerialized] private IDalamudPluginInterface? pluginInterface;
     public void Initialize(IDalamudPluginInterface pi) => pluginInterface = pi;

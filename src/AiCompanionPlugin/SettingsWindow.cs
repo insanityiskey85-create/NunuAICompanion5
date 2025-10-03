@@ -210,6 +210,17 @@ public sealed class SettingsWindow : Window
             config.SayWhitelist = lines;
             status = $"Say whitelist saved ({lines.Count}).";
         }
+        // ... keep your existing file; just add this block near the end before Save Settings ...
+
+        ImGui.Spacing();
+        ImGui.Text("Debug & Safety");
+        ImGui.Separator();
+        bool dbg = config.DebugChatTap;
+        if (ImGui.Checkbox("Debug: Log incoming chat (types + text)", ref dbg)) { config.DebugChatTap = dbg; }
+        int cap = config.DebugChatTapLimit;
+        if (ImGui.SliderInt("Debug log cap", ref cap, 10, 1000)) { config.DebugChatTapLimit = cap; }
+        bool req = config.RequireWhitelist;
+        if (ImGui.Checkbox("Require whitelist (uncheck to allow anyone if list empty)", ref req)) { config.RequireWhitelist = req; }
 
         ImGui.Spacing();
 

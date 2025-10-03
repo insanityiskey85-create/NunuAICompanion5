@@ -11,7 +11,7 @@ namespace AiCompanionPlugin;
 
 /// <summary>
 /// Listens to Party and Say. On whitelisted trigger, streams reply back to SAME channel.
-/// Now prints a clear hint if the pipe for that channel is disabled.
+/// Includes robust debug logging to confirm event flow and types.
 /// </summary>
 public sealed class AutoRouteListener : IDisposable
 {
@@ -20,6 +20,8 @@ public sealed class AutoRouteListener : IDisposable
     private readonly Configuration cfg;
     private readonly AiClient client;
     private readonly ChatPipe pipe;
+
+    private int debugCount = 0;
 
     public AutoRouteListener(IChatGui chat, IPluginLog log, Configuration cfg, AiClient client, ChatPipe pipe)
     {
@@ -30,6 +32,7 @@ public sealed class AutoRouteListener : IDisposable
         this.pipe = pipe;
 
         chat.ChatMessage += OnChatMessage;
+        log.Info("AutoRouteListener: subscribed to ChatGui.ChatMessage.");
     }
 
     private void OnChatMessage(XivChatType type, int timestamp, ref SeString sender, ref SeString message, ref bool isHandled)
@@ -41,19 +44,28 @@ public sealed class AutoRouteListener : IDisposable
     {
         try
         {
+            // --- DEBUG TAP: confirm we are receiving ANYTHING ---
+            if (cfg.DebugChatTap && debugCount < Math.Max(10, cfg.DebugChatTapLimit))
+            {
+                debugCount++;
+                log.Info($"[ChatTap #{debugCount}] Type={type} Sender='{sender.TextValue}' Msg='{message.TextValue}'");
+            }
+
             var route = type switch
             {
                 XivChatType.Party => ChatRoute.Party,
                 XivChatType.Say => ChatRoute.Say,
+                // Some clients can report 'CrossParty' for cross-DC party; catch it too.
+                (XivChatType)28 => ChatRoute.Party, // safeguard: historical CrossParty enum value
                 _ => (ChatRoute?)null
             };
             if (route == null) return;
+
             if (!IsListenerEnabled(route.Value)) return;
 
-            // If the route's pipe is disabled, inform the user once per message—no silent fail.
             if (!IsPipeEnabled(route.Value))
             {
-                chat.PrintError($"[AI Companion] {RouteName(route.Value)} listener is on, but its pipe is OFF. Enable it in Settings to allow replies.");
+                chat.PrintError($"[AI Companion] {RouteName(route.Value)} listener is ON, but its pipe is OFF. Enable in Settings.");
                 return;
             }
 
@@ -79,6 +91,7 @@ public sealed class AutoRouteListener : IDisposable
         catch (Exception ex)
         {
             log.Error(ex, "AutoRouteListener OnChatMessage failed");
+            chat.PrintError("[AI Companion] Chat listener error (see log).");
         }
     }
 
@@ -136,6 +149,11 @@ public sealed class AutoRouteListener : IDisposable
     private bool IsWhitelisted(ChatRoute route, string caller)
     {
         var list = route == ChatRoute.Party ? cfg.PartyWhitelist : cfg.SayWhitelist;
+
+        // If RequireWhitelist=false and list is empty -> allow everyone (for testing)
+        if (!cfg.RequireWhitelist && (list == null || list.Count == 0))
+            return true;
+
         return (list?.Any() ?? false) && list.Any(w => string.Equals(NormalizeName(w), caller, StringComparison.OrdinalIgnoreCase));
     }
 
@@ -165,5 +183,9 @@ public sealed class AutoRouteListener : IDisposable
         return string.Join(' ', n.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries));
     }
 
-    public void Dispose() => chat.ChatMessage -= OnChatMessage;
+    public void Dispose()
+    {
+        chat.ChatMessage -= OnChatMessage;
+        log.Info("AutoRouteListener: unsubscribed from ChatGui.ChatMessage.");
+    }
 }

@@ -4,9 +4,9 @@
     "Name": "AI Companion",
     "InternalName": "AiCompanionPlugin",
     "Punchline": "Song for a soul! Hauntingly helpful chat and chronicles.",
-    "Description": "A bardic AI companion that chats, routes messages, and scribes chronicles—woven for Dalamud.",
-    "AssemblyVersion": "5.0.0.0",
-    "TestingAssemblyVersion": "5.0.0.0",
+    "Description": "A void-touched bardic companion for Dalamud. Chat window, settings, routing triggers, and chronicles—written for Dalamud 13 + .NET 9.",
+    "AssemblyVersion": "5.0.0.1",
+    "TestingAssemblyVersion": "5.0.0.1",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 13,
     "RepoUrl": "https://github.com/insanityiskey85-create/NunuAICompanion5",
@@ -18,13 +18,13 @@
     "CategoryTags": [ "utility", "chat" ],
     "Tags": [ "ai", "chat", "companion", "utility" ],
     "LoadPriority": 0,
-    "Changelog": "v5.0.0.0 — Overhauled for Dalamud 13, .NET 9 support, and expanded AI features.",
+    "Changelog": "v5.0.0.1 — Command toggles (/nunuwin, /nunucfg), ImGui bindings stabilized, windows wired to UiBuilder, .NET 9/Dalamud 13 clean-up.",
     "IsHide": false,
     "IsTestingExclusive": false,
     "AcceptsFeedback": true,
 
-    "DownloadLinkInstall": "https://github.com/insanityiskey85-create/NunuAICompanion5/releases/download/v5.0.0.0/AiCompanionPlugin-v5.0.0.0.zip",
-    "DownloadLinkUpdate":  "https://github.com/insanityiskey85-create/NunuAICompanion5/releases/download/v5.0.0.0/AiCompanionPlugin-v5.0.0.0.zip",
-    "DownloadLinkTesting": "https://github.com/insanityiskey85-create/NunuAICompanion5/releases/download/v5.0.0.0/AiCompanionPlugin-v5.0.0.0.zip"
+    "DownloadLinkInstall": "https://github.com/insanityiskey85-create/NunuAICompanion5/releases/download/v5.0.0.1/AiCompanionPlugin-v5.0.0.1.zip",
+    "DownloadLinkUpdate":  "https://github.com/insanityiskey85-create/NunuAICompanion5/releases/download/v5.0.0.1/AiCompanionPlugin-v5.0.0.1.zip",
+    "DownloadLinkTesting": "https://github.com/insanityiskey85-create/NunuAICompanion5/releases/download/v5.0.0.1/AiCompanionPlugin-v5.0.0.1.zip"
   }
 ]

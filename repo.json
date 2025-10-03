@@ -10,7 +10,7 @@
     "ApplicableVersion": "any",
     "DalamudApiLevel": 10,
     "RepoUrl": "https://github.com/your-org/AiCompanionPlugin5",
-    "IconUrl": "https://raw.githubusercontent.com/your-org/AiCompanionPlugin/main/assets/icon.png",
+    "IconUrl": "https://raw.githubusercontent.com/your-org/AiCompanionPlugin5/main/assets/icon.png",
     "ImageUrls": [],
     "CategoryTags": [ "utility", "chat" ],
     "Tags": [ "ai", "chat", "companion", "utility" ],
@@ -25,4 +25,5 @@
     "DownloadLinkTesting": "https://github.com/your-org/AiCompanionPlugin5/releases/download/v1.0.3.1/AiCompanionPlugin_v1.0.3.2.zip"
   }
 ]
+
 

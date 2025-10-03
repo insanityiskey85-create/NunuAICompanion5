@@ -1,22 +1,20 @@
 {
-  "Author": "The Real Nunu",
+  "Author": "Nunubu Nubu",
   "Name": "AI Companion",
   "InternalName": "AiCompanionPlugin",
-  "AssemblyVersion": "5.0.0.0",
-  "Description": "Private AI chat window. No chat hooks. Persona via persona.txt.",
+  "AssemblyVersion": "5.0.0.3",
+  "Description": "A void-touched bardic companion for Dalamud. Chat window, persona.txt, routing triggers with whitelist, native/IPC chat send, and chronicles — tuned for Dalamud 13 + .NET 9.",
+  "Punchline": "Song for a soul! Any song for the price of one’s soul—bargain deal!",
   "ApplicableVersion": "any",
-  "RepoUrl": "https://github.com/insanityiskey85-create/NunuAICompanion5",
-  "Tags": [
-    "AI",
-    "chat",
-    "companion"
-  ],
   "DalamudApiLevel": 13,
-  "LoadRequiredState": 0,
-  "LoadSync": false,
+  "RepoUrl": "https://github.com/insanityiskey85-create/NunuAICompanion5",
   "LoadPriority": 0,
-  "IconUrl": "https://raw.githubusercontent.com/insanityiskey85-create/NunuAICompanion5/master/WOW.png",
-  "Punchline": "Isolated AI chat companion window.",
-  "Changelog": "Initial build with local Dalamud path and VS solution.",
-  "AcceptsFeedback": true
+  "Tags": ["ai", "chat", "companion", "utility"],
+  "CategoryTags": ["utility", "chat"],
+  "IconUrl": "https://raw.githubusercontent.com/insanityiskey85-create/NunuAICompanion5/main/assets/icon.png",
+  "ImageUrls": [
+    "https://raw.githubusercontent.com/insanityiskey85-create/NunuAICompanion5/main/assets/preview-1.png",
+    "https://raw.githubusercontent.com/insanityiskey85-create/NunuAICompanion5/main/assets/preview-2.png"
+  ],
+  "Changelog": "v5.0.0.3 — Persona tab/preview, routing UI with /say & /party tests, ChatWindow post-to-channel toggles, IPC/native sending, API 13 ready."
 }

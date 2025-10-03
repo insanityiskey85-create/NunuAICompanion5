@@ -11,10 +11,6 @@ namespace AiCompanionPlugin;
 
 public enum ChatRoute { Party, Say }
 
-/// <summary>
-/// Outbound router to /party or /say. Enqueues sends to OutboundDispatcher
-/// so they occur on a clean Framework tick.
-/// </summary>
 public sealed class ChatPipe : IDisposable
 {
     private readonly ICommandManager commands;
@@ -23,7 +19,6 @@ public sealed class ChatPipe : IDisposable
     private readonly IChatGui chat;
     private readonly OutboundDispatcher dispatcher;
 
-    // reflective method handles (cached)
     private readonly MethodInfo? sendChat;
     private readonly MethodInfo? sendMessage;
 
@@ -38,9 +33,6 @@ public sealed class ChatPipe : IDisposable
         var implType = chat.GetType();
         sendChat = implType.GetMethod("SendChat", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, new Type[] { typeof(string) });
         sendMessage = implType.GetMethod("SendMessage", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, new Type[] { typeof(string) });
-        if (sendChat != null) log.Info("ChatPipe: using ChatGui.SendChat for outbound messages.");
-        else if (sendMessage != null) log.Info("ChatPipe: using ChatGui.SendMessage for outbound messages.");
-        else log.Info("ChatPipe: no direct ChatGui send method found; will use ProcessCommand.");
     }
 
     private (string cmdPrefix, int chunk, int delay, int flushChars, int flushMs, bool enabled, string aiPrefix) GetRouteParams(ChatRoute route)
@@ -48,13 +40,13 @@ public sealed class ChatPipe : IDisposable
         var aiPrefix = string.IsNullOrWhiteSpace(config.AiDisplayName) ? "[AI Nunu] " : $"[{config.AiDisplayName}] ";
         return route switch
         {
-            ChatRoute.Party => ("/party ", Math.Max(64, config.PartyChunkSize), Math.Max(200, config.PartyPostDelayMs),
-                                Math.Max(40, config.PartyStreamFlushChars), Math.Max(300, config.PartyStreamMinFlushMs),
+            ChatRoute.Party => ("/party ", Math.Max(240, config.PartyChunkSize), Math.Max(250, config.PartyPostDelayMs),
+                                Math.Max(220, config.PartyStreamFlushChars), Math.Max(700, config.PartyStreamMinFlushMs),
                                 config.EnablePartyPipe, aiPrefix),
-            ChatRoute.Say => ("/say ", Math.Max(64, config.SayChunkSize), Math.Max(200, config.SayPostDelayMs),
-                                Math.Max(40, config.SayStreamFlushChars), Math.Max(300, config.SayStreamMinFlushMs),
+            ChatRoute.Say => ("/say ", Math.Max(240, config.SayChunkSize), Math.Max(250, config.SayPostDelayMs),
+                                Math.Max(220, config.SayStreamFlushChars), Math.Max(700, config.SayStreamMinFlushMs),
                                 config.EnableSayPipe, aiPrefix),
-            _ => ("/say ", 440, 800, 180, 600, false, aiPrefix),
+            _ => ("/say ", 360, 300, 220, 700, false, aiPrefix),
         };
     }
 
@@ -74,67 +66,87 @@ public sealed class ChatPipe : IDisposable
         return true;
     }
 
+    /// <summary>
+    /// STREAMING: buffer tokens and flush full sentences or near-max chunks.
+    /// This prevents one-word spam and keeps lines readable.
+    /// </summary>
     public async Task<bool> SendStreamingToAsync(ChatRoute route, IAsyncEnumerable<string> tokens, string headerForFirstLine, CancellationToken token = default)
     {
-        var (cmd, chunkSize, delay, flushChars, flushMs, enabled, aiPrefix) = GetRouteParams(route);
+        var (cmd, chunkSize, delay, flushCharsCfg, flushMsCfg, enabled, aiPrefix) = GetRouteParams(route);
         if (!enabled) { log.Info($"ChatPipe({route}): pipe disabled."); return false; }
 
         headerForFirstLine ??= string.Empty;
+
+        // Prefixes for the first/continuation lines
         var firstPrefix = aiPrefix + headerForFirstLine;
-        var contPrefix = "…";
+        var contPrefix = "… ";
 
-        var firstMax = Math.Max(64, chunkSize - GetLen(firstPrefix));
-        var contMax = Math.Max(64, chunkSize - GetLen(contPrefix));
+        // Max payload per line after prefix
+        var firstCap = Math.Max(120, chunkSize - GetLen(firstPrefix));
+        var contCap = Math.Max(120, chunkSize - GetLen(contPrefix));
 
-        var sb = new StringBuilder();
+        // Sentence-aware buffer
+        var sb = new StringBuilder(1024);
         var first = true;
-        var lastFlush = Environment.TickCount;
+
+        // Flush policy
+        var minFlushMs = Math.Max(500, flushMsCfg);     // wait a bit to gather words
+        var hardFlushMs = Math.Max(minFlushMs + 600, 1600); // force flush if backend trickles too slowly
+        var lastFlush = Environment.TickCount64;
+        var lastToken = Environment.TickCount64;
 
         await foreach (var t in tokens.WithCancellation(token))
         {
             if (string.IsNullOrEmpty(t)) continue;
             sb.Append(t);
+            lastToken = Environment.TickCount64;
 
-            var elapsed = Environment.TickCount - lastFlush;
-            var needFlush = sb.Length >= Math.Max(40, flushChars) || elapsed >= Math.Max(300, flushMs);
+            // Decide if we should flush now
+            var lineCap = first ? firstCap : contCap;
+            var length = sb.Length;
+            var elapsed = (int)(Environment.TickCount64 - lastFlush);
 
-            while (needFlush && sb.Length > 0)
+            bool reachedCap = length >= lineCap - 8; // small safety margin
+            bool endSentence = length >= 60 && EndsWithSentence(sb); // decent sentence
+            bool idleTimeout = elapsed >= hardFlushMs;               // too long without flush
+            bool minWindowMet = elapsed >= minFlushMs;
+
+            if ((reachedCap || endSentence || idleTimeout) && (minWindowMet || reachedCap || idleTimeout))
             {
-                token.ThrowIfCancellationRequested();
-
-                if (first)
+                // spill as much as possible up to line cap
+                while (sb.Length > 0 && (reachedCap || endSentence || idleTimeout))
                 {
-                    var chunk = TakeChunk(sb, firstMax);
-                    await SendLineAsync(cmd, San(firstPrefix) + San(chunk), token).ConfigureAwait(false);
+                    var chunk = TakeUntil(sb, lineCap);
+                    await SendLineAsync(cmd, San((first ? firstPrefix : contPrefix) + chunk), token).ConfigureAwait(false);
                     first = false;
-                }
-                else
-                {
-                    var chunk = TakeChunk(sb, contMax);
-                    await SendLineAsync(cmd, San(contPrefix) + San(chunk), token).ConfigureAwait(false);
+                    lastFlush = Environment.TickCount64;
+
+                    // re-evaluate after sending
+                    lineCap = contCap;
+                    reachedCap = sb.Length >= lineCap - 8;
+                    endSentence = sb.Length >= 60 && EndsWithSentence(sb);
+                    idleTimeout = false; // reset after a send
                 }
 
-                lastFlush = Environment.TickCount;
                 await Task.Delay(delay, token).ConfigureAwait(false);
-
-                needFlush = sb.Length >= Math.Max(40, flushChars) || (Environment.TickCount - lastFlush) >= Math.Max(300, flushMs);
             }
         }
 
+        // Final spill of remaining buffer (may be multiple lines if long)
+        var finalCap = first ? firstCap : contCap;
         while (sb.Length > 0)
         {
-            token.ThrowIfCancellationRequested();
-            var prefix = first ? firstPrefix : contPrefix;
-            var cap = first ? firstMax : contMax;
-            var chunk = TakeChunk(sb, cap);
-            await SendLineAsync(cmd, San(prefix) + San(chunk), token).ConfigureAwait(false);
+            var chunk = TakeUntil(sb, finalCap);
+            await SendLineAsync(cmd, San((first ? firstPrefix : contPrefix) + chunk), token).ConfigureAwait(false);
             first = false;
-            await Task.Delay(delay, token).ConfigureAwait(false);
+            finalCap = contCap;
+            await Task.Delay(80, token).ConfigureAwait(false);
         }
 
         return true;
     }
 
+    // ---- core send path (queued to dispatcher) ----
     private Task SendLineAsync(string cmdPrefix, string line, CancellationToken token)
     {
         var text = line;
@@ -162,23 +174,16 @@ public sealed class ChatPipe : IDisposable
                 }
 
                 if (config.DebugChatTap)
-                    chat.Print($"[AI Companion:{(cmdPrefix.StartsWith("/party") ? "Party" : "Say")}] → {line}");
+                    chat.Print($"[AI Companion:{(cmdPrefix.StartsWith("/party") ? "Party" : "Say")}] → {text}");
 
-                log.Info($"ChatPipe({(cmdPrefix.StartsWith("/party") ? "Party" : "Say")}) sent {line.Length} chars.");
+                log.Info($"ChatPipe({(cmdPrefix.StartsWith("/party") ? "Party" : "Say")}) sent {text.Length} chars.");
                 tcs.TrySetResult();
             }
             catch (TargetInvocationException ex)
             {
                 log.Error(ex.InnerException ?? ex, "ChatPipe reflective send failed; falling back to ProcessCommand.");
-                try
-                {
-                    commands.ProcessCommand(full);
-                    tcs.TrySetResult();
-                }
-                catch (Exception ex2)
-                {
-                    tcs.TrySetException(ex2);
-                }
+                try { commands.ProcessCommand(full); tcs.TrySetResult(); }
+                catch (Exception ex2) { tcs.TrySetException(ex2); }
             }
             catch (Exception ex)
             {
@@ -190,24 +195,50 @@ public sealed class ChatPipe : IDisposable
             return tcs.Task;
     }
 
+    // ---- helpers ----
+    private static bool EndsWithSentence(StringBuilder sb)
+    {
+        // look at last 1–3 non-space chars
+        int i = sb.Length - 1;
+        while (i >= 0 && char.IsWhiteSpace(sb[i])) i--;
+        if (i < 0) return false;
+
+        char c = sb[i];
+        if (c is '.' or '!' or '?' or '…') return true;
+        // handle “).” or “!” after quote
+        if (c is '"' or '\'' or ')' or ']' or '»')
+        {
+            i--;
+            if (i >= 0)
+            {
+                c = sb[i];
+                if (c is '.' or '!' or '?' or '…') return true;
+            }
+        }
+        return false;
+    }
+
+    private static string TakeUntil(StringBuilder sb, int cap)
+    {
+        if (sb.Length <= cap) { var all = sb.ToString(); sb.Clear(); return all; }
+
+        // Try to cut at last whitespace before cap
+        int cut = cap;
+        for (int i = cap; i >= Math.Max(0, cap - 40); i--)
+        {
+            if (char.IsWhiteSpace(sb[i])) { cut = i; break; }
+        }
+        var s = sb.ToString(0, cut).TrimEnd();
+        sb.Remove(0, cut);
+        return s;
+    }
+
     private IEnumerable<string> PrepareForNetwork(string text, string prefix, int chunkSize)
     {
         text = text.Replace("\r\n", "\n").Trim();
-        var chunks = ChunkSmart(text, Math.Max(64, chunkSize - GetLen(prefix)));
-        bool first = true;
-        foreach (var c in chunks)
-        {
-            yield return (first ? prefix : "…") + c;
-            first = false;
-        }
-    }
-
-    private static string TakeChunk(StringBuilder sb, int max)
-    {
-        var take = Math.Min(max, sb.Length);
-        var s = sb.ToString(0, take);
-        sb.Remove(0, take);
-        return s;
+        var max = Math.Max(200, chunkSize - GetLen(prefix));
+        foreach (var chunk in ChunkSmart(text, max))
+            yield return (prefix + chunk);
     }
 
     private static int GetLen(string s) => s?.Length ?? 0;
@@ -215,46 +246,18 @@ public sealed class ChatPipe : IDisposable
     private static IEnumerable<string> ChunkSmart(string text, int max)
     {
         if (text.Length <= max) { yield return text; yield break; }
-        var sentences = SplitSentences(text);
-        var sb = new StringBuilder();
-        foreach (var s in sentences)
-        {
-            if (s.Length > max)
-            {
-                foreach (var w in ChunkWords(s, max)) yield return w;
-            }
-            else
-            {
-                if (sb.Length + s.Length + 1 <= max)
-                {
-                    if (sb.Length > 0) sb.Append(' ');
-                    sb.Append(s);
-                }
-                else
-                {
-                    if (sb.Length > 0) { yield return sb.ToString(); sb.Clear(); }
-                    sb.Append(s);
-                }
-            }
-        }
-        if (sb.Length > 0) yield return sb.ToString();
-    }
-
-    private static IEnumerable<string> ChunkWords(string s, int max)
-    {
-        var words = s.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         var sb = new StringBuilder();
         foreach (var w in words)
         {
-            if (w.Length > max)
+            if (sb.Length + w.Length + 1 > max)
             {
                 if (sb.Length > 0) { yield return sb.ToString(); sb.Clear(); }
+            }
+            if (w.Length > max)
+            {
                 for (int i = 0; i < w.Length; i += max)
                     yield return w.Substring(i, Math.Min(max, w.Length - i));
-            }
-            else if (sb.Length + w.Length + 1 > max)
-            {
-                yield return sb.ToString(); sb.Clear(); sb.Append(w);
             }
             else
             {
@@ -263,19 +266,6 @@ public sealed class ChatPipe : IDisposable
             }
         }
         if (sb.Length > 0) yield return sb.ToString();
-    }
-
-    private static IEnumerable<string> SplitSentences(string text)
-    {
-        var t = text.Replace("\r\n", "\n");
-        var parts = t.Split(new[] { ". ", "! ", "? ", "\n" }, StringSplitOptions.None);
-        for (int i = 0; i < parts.Length; i++)
-        {
-            var seg = parts[i].Trim();
-            if (seg.Length == 0) continue;
-            if (i < parts.Length - 1 && !t.Contains('\n')) seg += ".";
-            yield return seg;
-        }
     }
 
     private static string StripNonAscii(string input)

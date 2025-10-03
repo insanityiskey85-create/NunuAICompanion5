@@ -8,105 +8,105 @@ namespace AiCompanionPlugin;
 [Serializable]
 public sealed class Configuration : IPluginConfiguration
 {
-    public int Version { get; set; } = 10;
+    // Bump this any time the schema changes
+    public int Version { get; set; } = 11;
 
-    // Backend
+    // ===== Backend =====
     public string BackendBaseUrl { get; set; } = "http://127.0.0.1:11434";
     public string ApiKey { get; set; } = string.Empty;
-    public string Model { get; set; } = "llama3.1";
-
-    // Persona
-    public string PersonaFileRelative { get; set; } = "persona.txt";
-    public string SystemPromptOverride { get; set; } = string.Empty;
-
-    // Chat UX
-    public int MaxHistoryMessages { get; set; } = 20;
+    public string Model { get; set; } = "qwen2.5:1.5b-instruct-q4_K_M"; // or llama3.1 etc.
     public bool StreamResponses { get; set; } = true;
+    public int MaxHistoryMessages { get; set; } = 20;
 
-    // Theme
-    public string ThemeName { get; set; } = "Eorzean Night";
+    // ===== Persona / Display =====
+    public string PersonaFileRelative { get; set; } = "persona.txt";
+    public string SystemPromptOverride { get; set; } = string.Empty; // cached text of persona.txt
+    public string AiDisplayName { get; set; } = "AI Nunu";
 
-    // Memory
+    // ===== Theme (basic hook, actual palettes live elsewhere) =====
+    public string ThemeName { get; set; } = "Void Touched";
+
+    // ===== Memory / Chronicle =====
     public bool EnableMemory { get; set; } = true;
     public bool AutoSaveMemory { get; set; } = true;
     public int MaxMemories { get; set; } = 256;
     public string MemoriesFileRelative { get; set; } = "memories.json";
 
-    // Display
-    public string AiDisplayName { get; set; } = "AI Nunu";
-
-    // Chronicle
     public bool EnableChronicle { get; set; } = true;
     public bool ChronicleAutoAppend { get; set; } = true;
     public int ChronicleMaxEntries { get; set; } = 1000;
     public string ChronicleFileRelative { get; set; } = "chronicle.json";
     public string ChronicleStyle { get; set; } = "Canon";
 
-    // PARTY — Pipe & Listener
+    // ===== Chat Routing: Party (/party) =====
+    // Send (pipe)
     public bool EnablePartyPipe { get; set; } = false;
-    public bool ConfirmBeforePartyPost { get; set; } = true;
-    public int PartyChunkSize { get; set; } = 440;
-    public int PartyPostDelayMs { get; set; } = 800;
+    public int PartyChunkSize { get; set; } = 420;     // max characters per posted line (including prefixes)
+    public int PartyPostDelayMs { get; set; } = 600;   // delay between posted lines
+    public int PartyStreamFlushChars { get; set; } = 220; // streaming: flush when this many chars buffered
+    public int PartyStreamMinFlushMs { get; set; } = 900; // streaming: minimal wait before flushing
 
+    // Receive (listener)
     public bool EnablePartyListener { get; set; } = false;
     public string PartyTrigger { get; set; } = "!AI Nunu";
     public List<string> PartyWhitelist { get; set; } = new() { "Your Name Here" };
     public bool PartyAutoReply { get; set; } = true;
 
-    // SAY — Pipe & Listener
-    public bool EnableSayPipe { get; set; } = false;
-    public int SayChunkSize { get; set; } = 440;
-    public int SayPostDelayMs { get; set; } = 800;
+    // Formatting
+    public bool PartyEchoCallerPrompt { get; set; } = true;
+    public string PartyCallerEchoFormat { get; set; } = "{caller} -> {ai}: {prompt}";
+    public string PartyAiReplyFormat { get; set; } = "{ai} -> {caller}: {reply}";
 
+    // ===== Chat Routing: Say (/say) =====
+    // Send (pipe)
+    public bool EnableSayPipe { get; set; } = false;
+    public int SayChunkSize { get; set; } = 420;
+    public int SayPostDelayMs { get; set; } = 600;
+    public int SayStreamFlushChars { get; set; } = 220;
+    public int SayStreamMinFlushMs { get; set; } = 900;
+
+    // Receive (listener)
     public bool EnableSayListener { get; set; } = false;
     public string SayTrigger { get; set; } = "!AI Nunu";
     public List<string> SayWhitelist { get; set; } = new() { "Your Name Here" };
     public bool SayAutoReply { get; set; } = true;
 
     // Formatting
-    public bool PartyEchoCallerPrompt { get; set; } = true;
-    public string PartyCallerEchoFormat { get; set; } = "{caller} \u2192 {ai}: {prompt}";
-    public string PartyAiReplyFormat { get; set; } = "{ai} \u2192 {caller}: {reply}";
-
     public bool SayEchoCallerPrompt { get; set; } = true;
-    public string SayCallerEchoFormat { get; set; } = "{caller} \u2192 {ai}: {prompt}";
-    public string SayAiReplyFormat { get; set; } = "{ai} \u2192 {caller}: {reply}";
+    public string SayCallerEchoFormat { get; set; } = "{caller} -> {ai}: {prompt}";
+    public string SayAiReplyFormat { get; set; } = "{ai} -> {caller}: {reply}";
 
-    // Streaming thresholds
-    public int PartyStreamFlushChars { get; set; } = 180;
-    public int PartyStreamMinFlushMs { get; set; } = 600;
-    public int SayStreamFlushChars { get; set; } = 180;
-    public int SayStreamMinFlushMs { get; set; } = 600;
+    // ===== Debug & Safety =====
+    public bool DebugChatTap { get; set; } = false;   // when true, log inbound/outbound debug to plugin log / chat
+    public int DebugChatTapLimit { get; set; } = 200; // max entries per session
+    public bool RequireWhitelist { get; set; } = true;
 
-    // add near the other settings
-    public bool NetworkAsciiOnly { get; set; } = true;   // strip emojis/non-ASCII before network send
-    public bool UseAsciiHeaders { get; set; } = true;   // use "->" instead of "→" in channel headers
+    // Network text safety
+    public bool NetworkAsciiOnly { get; set; } = true; // strip emojis/non-ascii before sending
+    public bool UseAsciiHeaders { get; set; } = true;  // "->" instead of "→" in headers
 
-    // NEW: Debug/Troubleshooting
-    public bool DebugChatTap { get; set; } = true;       // log incoming chat kinds & text
-    public int DebugChatTapLimit { get; set; } = 100;    // max entries per session
-    public bool RequireWhitelist { get; set; } = true;   // if false, empty whitelist allows everyone (for testing)
-
+    // ===== Dalamud plumbing =====
     [NonSerialized] private IDalamudPluginInterface? pluginInterface;
+
     public void Initialize(IDalamudPluginInterface pi) => pluginInterface = pi;
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
+
     public void Save() => pluginInterface?.SavePluginConfig(this);
 
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
+    // ===== Helper paths (all relative to plugin config folder) =====
     public string GetPersonaAbsolutePath(IDalamudPluginInterface pi)
     {
         var dir = pi.GetPluginConfigDirectory();
         System.IO.Directory.CreateDirectory(dir);
-        return System.IO.Path.Combine(dir, PersonaFileRelative);
+        return System.IO.Path.Combine(dir, string.IsNullOrWhiteSpace(PersonaFileRelative) ? "persona.txt" : PersonaFileRelative);
     }
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
+
     public string GetMemoriesAbsolutePath(IDalamudPluginInterface pi)
     {
         var dir = pi.GetPluginConfigDirectory();
         System.IO.Directory.CreateDirectory(dir);
         return System.IO.Path.Combine(dir, string.IsNullOrWhiteSpace(MemoriesFileRelative) ? "memories.json" : MemoriesFileRelative);
     }
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
+
     public string GetChronicleAbsolutePath(IDalamudPluginInterface pi)
     {
         var dir = pi.GetPluginConfigDirectory();

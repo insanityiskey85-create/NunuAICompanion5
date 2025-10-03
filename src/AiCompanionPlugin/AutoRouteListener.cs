@@ -11,7 +11,7 @@ namespace AiCompanionPlugin;
 
 /// <summary>
 /// Listens to Party and Say. On whitelisted trigger, streams reply back to SAME channel.
-/// Includes robust debug logging to confirm event flow and types.
+/// Implements the API 13 signature with timestamp.
 /// </summary>
 public sealed class AutoRouteListener : IDisposable
 {
@@ -31,32 +31,28 @@ public sealed class AutoRouteListener : IDisposable
         this.client = client;
         this.pipe = pipe;
 
+        // Subscribe with API 13 signature (timestamped)
         chat.ChatMessage += OnChatMessage;
-        log.Info("AutoRouteListener: subscribed to ChatGui.ChatMessage.");
+        log.Info("AutoRouteListener: subscribed to ChatGui.ChatMessage (timestamp signature).");
     }
 
+    // API 13 delegate: (XivChatType type, int timestamp, ref SeString sender, ref SeString message, ref bool isHandled)
     private void OnChatMessage(XivChatType type, int timestamp, ref SeString sender, ref SeString message, ref bool isHandled)
-    {
-        throw new NotImplementedException();
-    }
-
-    private void OnChatMessage(XivChatType type, uint senderId, ref SeString sender, ref SeString message, ref bool isHandled)
     {
         try
         {
-            // --- DEBUG TAP: confirm we are receiving ANYTHING ---
+            // --- DEBUG TAP ---
             if (cfg.DebugChatTap && debugCount < Math.Max(10, cfg.DebugChatTapLimit))
             {
                 debugCount++;
-                log.Info($"[ChatTap #{debugCount}] Type={type} Sender='{sender.TextValue}' Msg='{message.TextValue}'");
+                log.Info($"[ChatTap #{debugCount}] {type} @{timestamp} Sender='{sender.TextValue}' Msg='{message.TextValue}'");
             }
 
             var route = type switch
             {
                 XivChatType.Party => ChatRoute.Party,
                 XivChatType.Say => ChatRoute.Say,
-                // Some clients can report 'CrossParty' for cross-DC party; catch it too.
-                (XivChatType)28 => ChatRoute.Party, // safeguard: historical CrossParty enum value
+                // Some environments may surface cross-party differently; keep a safety alias if needed.
                 _ => (ChatRoute?)null
             };
             if (route == null) return;
@@ -65,7 +61,7 @@ public sealed class AutoRouteListener : IDisposable
 
             if (!IsPipeEnabled(route.Value))
             {
-                chat.PrintError($"[AI Companion] {RouteName(route.Value)} listener is ON, but its pipe is OFF. Enable in Settings.");
+                chat.PrintError($"[AI Companion] {RouteName(route.Value)} listener is ON, but its pipe is OFF. Enable it in Settings.");
                 return;
             }
 
@@ -150,7 +146,7 @@ public sealed class AutoRouteListener : IDisposable
     {
         var list = route == ChatRoute.Party ? cfg.PartyWhitelist : cfg.SayWhitelist;
 
-        // If RequireWhitelist=false and list is empty -> allow everyone (for testing)
+        // If RequireWhitelist=false and list empty -> allow everyone (testing)
         if (!cfg.RequireWhitelist && (list == null || list.Count == 0))
             return true;
 

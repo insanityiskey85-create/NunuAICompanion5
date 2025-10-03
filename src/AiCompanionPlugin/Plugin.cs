@@ -49,7 +49,9 @@ public sealed class Plugin : IDalamudPlugin
         memoryManager = new MemoryManager(PluginInterface, PluginLog, config);
         chronicleManager = new ChronicleManager(PluginInterface, PluginLog, config);
         aiClient = new AiClient(PluginLog, config, personaManager);
-        chatPipe = new ChatPipe(CommandManager, PluginLog, config);
+        // ... inside Plugin class constructor, replace ChatPipe creation with:
+        chatPipe = new ChatPipe(CommandManager, PluginLog, config, Framework, ChatGui);
+
         autoListener = new AutoRouteListener(ChatGui, PluginLog, config, aiClient, chatPipe);
 
         chatWindow = new ChatWindow(PluginLog, aiClient, config, personaManager, memoryManager, chronicleManager, chatPipe);

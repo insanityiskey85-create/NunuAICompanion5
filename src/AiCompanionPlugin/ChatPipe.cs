@@ -11,7 +11,8 @@ namespace AiCompanionPlugin;
 public enum ChatRoute { Party, Say }
 
 /// <summary>
-/// Outbound router to /p or /s using ICommandManager.ProcessCommand.
+/// Outbound router to /party or /say using ICommandManager.ProcessCommand.
+/// All sends are marshalled to the framework (game) thread.
 /// Supports normal and streaming sends. Safe no-throw if route is disabled.
 /// </summary>
 public sealed class ChatPipe
@@ -19,26 +20,30 @@ public sealed class ChatPipe
     private readonly ICommandManager commands;
     private readonly IPluginLog log;
     private readonly Configuration config;
+    private readonly IFramework framework;
+    private readonly IChatGui chat; // for optional debug echo
 
-    public ChatPipe(ICommandManager commands, IPluginLog log, Configuration config)
+    public ChatPipe(ICommandManager commands, IPluginLog log, Configuration config, IFramework framework, IChatGui chat)
     {
         this.commands = commands;
         this.log = log;
         this.config = config;
+        this.framework = framework;
+        this.chat = chat;
     }
 
-    private (string prefixCmd, int chunk, int delay, int flushChars, int flushMs, bool enabled, string aiPrefix) GetRouteParams(ChatRoute route)
+    private (string cmdPrefix, int chunk, int delay, int flushChars, int flushMs, bool enabled, string aiPrefix) GetRouteParams(ChatRoute route)
     {
         var aiPrefix = string.IsNullOrWhiteSpace(config.AiDisplayName) ? "[AI Nunu] " : $"[{config.AiDisplayName}] ";
         return route switch
         {
-            ChatRoute.Party => ("/p ", Math.Max(64, config.PartyChunkSize), Math.Max(200, config.PartyPostDelayMs),
+            ChatRoute.Party => ("/party ", Math.Max(64, config.PartyChunkSize), Math.Max(200, config.PartyPostDelayMs),
                                 Math.Max(40, config.PartyStreamFlushChars), Math.Max(300, config.PartyStreamMinFlushMs),
                                 config.EnablePartyPipe, aiPrefix),
-            ChatRoute.Say => ("/s ", Math.Max(64, config.SayChunkSize), Math.Max(200, config.SayPostDelayMs),
+            ChatRoute.Say => ("/say ", Math.Max(64, config.SayChunkSize), Math.Max(200, config.SayPostDelayMs),
                                 Math.Max(40, config.SayStreamFlushChars), Math.Max(300, config.SayStreamMinFlushMs),
                                 config.EnableSayPipe, aiPrefix),
-            _ => ("/p ", 440, 800, 180, 600, false, aiPrefix),
+            _ => ("/say ", 440, 800, 180, 600, false, aiPrefix),
         };
     }
 
@@ -64,7 +69,8 @@ public sealed class ChatPipe
             var line = first ? prefix + raw : "…" + raw;
             first = false;
 
-            commands.ProcessCommand(cmd + line);
+            await RunOnFrameworkAsync(() => commands.ProcessCommand(cmd + line), token).ConfigureAwait(false);
+            if (config.DebugChatTap) chat.Print($"[AI Companion:{route}] → {line}");
             log.Info($"ChatPipe({route}) sent {line.Length} chars.");
             await Task.Delay(delay, token).ConfigureAwait(false);
         }
@@ -108,7 +114,9 @@ public sealed class ChatPipe
                     var take = Math.Min(firstMax, sb.Length);
                     var chunk = sb.ToString(0, take);
                     sb.Remove(0, take);
-                    commands.ProcessCommand(cmd + firstPrefix + chunk);
+
+                    await RunOnFrameworkAsync(() => commands.ProcessCommand(cmd + firstPrefix + chunk), token).ConfigureAwait(false);
+                    if (config.DebugChatTap) chat.Print($"[AI Companion:{route}] → {firstPrefix}{chunk}");
                     first = false;
                 }
                 else
@@ -116,7 +124,9 @@ public sealed class ChatPipe
                     var take = Math.Min(contMax, sb.Length);
                     var chunk = sb.ToString(0, take);
                     sb.Remove(0, take);
-                    commands.ProcessCommand(cmd + contPrefix + chunk);
+
+                    await RunOnFrameworkAsync(() => commands.ProcessCommand(cmd + contPrefix + chunk), token).ConfigureAwait(false);
+                    if (config.DebugChatTap) chat.Print($"[AI Companion:{route}] → {contPrefix}{chunk}");
                 }
 
                 log.Info($"ChatPipe({route}) streamed chunk.");
@@ -134,7 +144,10 @@ public sealed class ChatPipe
             var take = Math.Min(first ? firstMax : contMax, sb.Length);
             var chunk = sb.ToString(0, take);
             sb.Remove(0, take);
-            commands.ProcessCommand(cmd + (first ? firstPrefix : contPrefix) + chunk);
+
+            var prefix = first ? firstPrefix : contPrefix;
+            await RunOnFrameworkAsync(() => commands.ProcessCommand(cmd + prefix + chunk), token).ConfigureAwait(false);
+            if (config.DebugChatTap) chat.Print($"[AI Companion:{route}] → {prefix}{chunk}");
             first = false;
             await Task.Delay(delay, token).ConfigureAwait(false);
         }
@@ -143,6 +156,18 @@ public sealed class ChatPipe
     }
 
     // ---------- helpers ----------
+    private async Task RunOnFrameworkAsync(Action action, CancellationToken token)
+    {
+        var tcs = new TaskCompletionSource();
+        framework.RunOnFrameworkThread(() =>
+        {
+            try { action(); tcs.SetResult(); }
+            catch (Exception ex) { tcs.SetException(ex); }
+        });
+        using (token.Register(() => tcs.TrySetCanceled(token)))
+            await tcs.Task.ConfigureAwait(false);
+    }
+
     private static IEnumerable<string> ChunkSmart(string text, int max)
     {
         if (text.Length <= max) { yield return text; yield break; }

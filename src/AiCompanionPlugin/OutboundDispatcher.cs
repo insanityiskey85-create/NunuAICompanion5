@@ -1,63 +1,52 @@
 ﻿using System;
 using System.Collections.Concurrent;
-using System.Threading;
 using Dalamud.Plugin.Services;
 
 namespace AiCompanionPlugin;
 
 /// <summary>
-/// Runs small actions on the next/safe Framework tick, with simple rate limiting,
-/// so outbound chat leaves outside the chat hook call stack.
+/// Queues outbound chat actions and executes them on Framework.Update
+/// with a minimum interval to avoid flood/hitches.
 /// </summary>
-public sealed class OutboundDispatcher : IDisposable
+internal sealed class OutboundDispatcher : IDisposable
 {
-    private readonly IFramework framework;
-    private readonly IPluginLog log;
+    private readonly IFramework _framework;
+    private readonly IPluginLog _log;
+    private readonly ConcurrentQueue<Action> _queue = new();
+    private long _lastTick;
+    private bool _subscribed;
 
-    private readonly ConcurrentQueue<Action> work = new();
-    private long lastSendMs = 0;
-
-    // Minimum spacing between actual sends to avoid throttles.
     public int MinIntervalMs { get; set; } = 250;
 
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     public OutboundDispatcher(IFramework framework, IPluginLog log)
     {
-        this.framework = framework;
-        this.log = log;
-        this.framework.Update += OnUpdate;
+        _framework = framework;
+        _log = log;
+        _framework.Update += OnUpdate;
+        _subscribed = true;
     }
 
-    public void Enqueue(Action action)
-    {
-        if (action == null) return;
-        work.Enqueue(action);
-    }
+    public void Enqueue(Action action) => _queue.Enqueue(action);
 
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     private void OnUpdate(IFramework _)
     {
-        // Drain only a few per frame (we just need to ensure we're out of the chat detour call stack)
-        int processed = 0;
-        while (processed < 4 && work.TryDequeue(out var a))
-        {
-            // soft rate limit between individual sends
-            var now = Environment.TickCount64;
-            var wait = (lastSendMs + MinIntervalMs) - now;
-            if (wait > 0)
-                Thread.Sleep((int)wait);
+        var now = Environment.TickCount64;
+        if (now - _lastTick < MinIntervalMs) return;
 
+        if (_queue.TryDequeue(out var a))
+        {
             try { a(); }
-            catch (Exception ex) { log.Error(ex, "OutboundDispatcher action failed"); }
-            lastSendMs = Environment.TickCount64;
-            processed++;
+            catch (Exception ex) { _log.Error(ex, "[OutboundDispatcher] task failed"); }
+            finally { _lastTick = now; }
         }
     }
 
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     public void Dispose()
     {
-        framework.Update -= OnUpdate;
-        while (work.TryDequeue(out _)) { }
+        if (!_subscribed) return;
+        _framework.Update -= OnUpdate;
+        _subscribed = false;
+
+        while (_queue.TryDequeue(out _)) { }
     }
 }

@@ -104,7 +104,7 @@ public sealed class Configuration : IPluginConfiguration
                ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AiCompanionPlugin");
     }
 
-    public string GetPersonaAbsolutePath()
+    public string GetPersonaAbsolutePath(IDalamudPluginInterface pi)
         => EnsureDirJoin(PersonaFileRelative);
 
     public string GetMemoriesAbsolutePath()

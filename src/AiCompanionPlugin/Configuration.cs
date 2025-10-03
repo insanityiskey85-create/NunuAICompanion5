@@ -54,12 +54,16 @@ namespace AiCompanionPlugin
         public List<string> PartyWhitelist { get; set; } = new();
 
         // --- Persona / System prompt ---
-        public string SystemPromptOverride { get; set; } = ""; // if non-empty, overrides persona file
+        public string SystemPromptOverride { get; set; } = "";
         public string PersonaFileRelative { get; set; } = "persona.txt";
 
         // --- Debug ---
         public bool DebugChatTap { get; set; } = false;
         public int DebugChatTapLimit { get; set; } = 200;
+
+        // --- ChatWindow behavior ---
+        public bool PostAssistantToSay { get; set; } = false;
+        public bool PostAssistantToParty { get; set; } = false;
 
         [NonSerialized] private IDalamudPluginInterface? pluginInterface;
 
@@ -85,18 +89,12 @@ namespace AiCompanionPlugin
             return path;
         }
 
-        public string GetPersonaAbsolutePath()
-            => GetAbsolutePath(PersonaFileRelative);
-
-        public string GetChronicleAbsolutePath()
-            => GetAbsolutePath(ChronicleFileRelative);
-
-        public string GetMemoriesAbsolutePath()
-            => GetAbsolutePath(MemoriesFileRelative);
+        public string GetPersonaAbsolutePath() => GetAbsolutePath(PersonaFileRelative);
+        public string GetChronicleAbsolutePath() => GetAbsolutePath(ChronicleFileRelative);
+        public string GetMemoriesAbsolutePath() => GetAbsolutePath(MemoriesFileRelative);
 
         private void EnsureDataDirs()
         {
-            // Create directories for files we manage
             _ = GetMemoriesAbsolutePath();
             _ = GetChronicleAbsolutePath();
             _ = GetPersonaAbsolutePath();

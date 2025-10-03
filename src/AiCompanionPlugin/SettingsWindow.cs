@@ -12,57 +12,77 @@ namespace AiCompanionPlugin
     /// <summary>
     /// Settings UI for AI Companion.
     /// Uses Dalamud.Bindings.ImGui.ImGui with UTF-8 label caching and byte-buffer InputText overloads.
-    /// Avoids 'ref' on properties by staging to locals.
+    /// Also exposes Persona tab and Routing tab with send-to-/say and /party test buttons.
     /// </summary>
     public sealed class SettingsWindow
     {
         private readonly Configuration config;
         private readonly Action saveConfig;
 
+        // Optional hooks provided by Plugin for persona preview + sending tests
+        private readonly Func<string>? getPersonaPreview;
+        private readonly Action<string>? sendTestSay;
+        private readonly Action<string>? sendTestParty;
+
         private bool isOpen = true;
 
-        // Staged string values
+        // staged strings
         private string memoriesPath;
         private string chroniclePath;
         private string chronicleStyle;
         private string apiKeyBuffer;
         private string baseUrlBuffer;
         private string modelBuffer;
+        private string personaPath;
+        private string personaOverride;
 
-        // Byte buffers for InputText (ImGui byte-span overload)
+        // byte buffers for inputs
         private byte[] bufMemories = new byte[1024];
         private byte[] bufChronPath = new byte[1024];
         private byte[] bufChronStyle = new byte[128];
         private byte[] bufApiKey = new byte[2048];
         private byte[] bufBaseUrl = new byte[1024];
         private byte[] bufModel = new byte[256];
+        private byte[] bufPersonaRel = new byte[1024];
+        private byte[] bufPersonaOv = new byte[4096];
 
         private string newSayWhitelist = string.Empty;
         private string newPartyWhitelist = string.Empty;
         private byte[] bufSayAdd = new byte[128];
         private byte[] bufPartyAdd = new byte[128];
 
+        private string testSayText = "Nunu test into /say ♪";
+        private string testPartyText = "Nunu test into /party ♪";
+        private byte[] bufTestSay = new byte[256];
+        private byte[] bufTestParty = new byte[256];
+
         // ---------- UTF-8 label cache ----------
         private static readonly Dictionary<string, byte[]> LabelCache = new(StringComparer.Ordinal);
-
         private static ReadOnlySpan<byte> L(string s)
         {
             if (!LabelCache.TryGetValue(s, out var bytes))
             {
-                // null-terminated, as ImGui expects
                 var raw = Encoding.UTF8.GetBytes(s);
                 bytes = new byte[raw.Length + 1];
                 Buffer.BlockCopy(raw, 0, bytes, 0, raw.Length);
-                bytes[bytes.Length - 1] = 0;
+                bytes[^1] = 0;
                 LabelCache[s] = bytes;
             }
             return bytes;
         }
 
-        public SettingsWindow(Configuration config, Action saveConfig)
+        public SettingsWindow(
+            Configuration config,
+            Action saveConfig,
+            Func<string>? getPersonaPreview = null,
+            Action<string>? sendTestSay = null,
+            Action<string>? sendTestParty = null)
         {
             this.config = config ?? throw new ArgumentNullException(nameof(config));
             this.saveConfig = saveConfig ?? throw new ArgumentNullException(nameof(saveConfig));
+            this.getPersonaPreview = getPersonaPreview;
+            this.sendTestSay = sendTestSay;
+            this.sendTestParty = sendTestParty;
 
             memoriesPath = config.MemoriesFileRelative ?? "Data/memories.json";
             chroniclePath = config.ChronicleFileRelative ?? "Data/chronicle.md";
@@ -70,6 +90,9 @@ namespace AiCompanionPlugin
             apiKeyBuffer = config.ApiKey ?? string.Empty;
             baseUrlBuffer = config.BackendBaseUrl ?? string.Empty;
             modelBuffer = config.Model ?? string.Empty;
+
+            personaPath = config.PersonaFileRelative ?? "persona.txt";
+            personaOverride = config.SystemPromptOverride ?? string.Empty;
         }
 
         public bool IsOpen
@@ -118,6 +141,12 @@ namespace AiCompanionPlugin
                     Dalamud.Bindings.ImGui.ImGui.EndTabItem();
                 }
 
+                if (Dalamud.Bindings.ImGui.ImGui.BeginTabItem(L("Persona")))
+                {
+                    DrawPersona();
+                    Dalamud.Bindings.ImGui.ImGui.EndTabItem();
+                }
+
                 if (Dalamud.Bindings.ImGui.ImGui.BeginTabItem(L("Routing")))
                 {
                     DrawRouting();
@@ -137,46 +166,41 @@ namespace AiCompanionPlugin
             Dalamud.Bindings.ImGui.ImGui.TextDisabled("Display");
             Dalamud.Bindings.ImGui.ImGui.Separator();
 
-            // Display Name (stage to local to avoid ref-on-property)
             var dispName = config.AiDisplayName ?? "Nunu";
             TextInline("Name");
             Dalamud.Bindings.ImGui.ImGui.SameLine();
             Dalamud.Bindings.ImGui.ImGui.SetNextItemWidth(300f);
-            if (Utf8InputText(L("##ai_name"), ref dispName, ref bufModel, 256, allowEmpty: false))
+            if (Utf8InputText(L("##ai_name"), ref dispName, ref bufModel, 256, false))
             {
                 config.AiDisplayName = dispName.Trim();
                 saveConfig();
             }
 
-            // Theme (stage local)
             var themeName = config.ThemeName ?? "Default";
             TextInline("Theme");
             Dalamud.Bindings.ImGui.ImGui.SameLine();
             Dalamud.Bindings.ImGui.ImGui.SetNextItemWidth(300f);
-            if (Utf8InputText(L("##ai_theme"), ref themeName, ref bufModel, 128, allowEmpty: false))
+            if (Utf8InputText(L("##ai_theme"), ref themeName, ref bufModel, 128, false))
             {
                 config.ThemeName = themeName.Trim();
                 saveConfig();
             }
 
             Dalamud.Bindings.ImGui.ImGui.Spacing();
-            Dalamud.Bindings.ImGui.ImGui.TextDisabled("Debug");
+            Dalamud.Bindings.ImGui.ImGui.TextDisabled("Windows");
             Dalamud.Bindings.ImGui.ImGui.Separator();
 
-            bool debugTap = config.DebugChatTap;
-            if (Dalamud.Bindings.ImGui.ImGui.Checkbox(L("Enable Chat Tap Debug"), ref debugTap))
+            bool openChat = config.OpenChatOnLoad;
+            if (Dalamud.Bindings.ImGui.ImGui.Checkbox(L("Open Chat on Load"), ref openChat))
             {
-                config.DebugChatTap = debugTap;
+                config.OpenChatOnLoad = openChat;
                 saveConfig();
             }
 
-            int debugLimit = config.DebugChatTapLimit;
-            TextInline("Debug Tap Limit");
-            Dalamud.Bindings.ImGui.ImGui.SameLine();
-            Dalamud.Bindings.ImGui.ImGui.SetNextItemWidth(120f);
-            if (Dalamud.Bindings.ImGui.ImGui.InputInt(L("##dbg_limit"), ref debugLimit))
+            bool openCfg = config.OpenSettingsOnLoad;
+            if (Dalamud.Bindings.ImGui.ImGui.Checkbox(L("Open Settings on Load"), ref openCfg))
             {
-                config.DebugChatTapLimit = Math.Max(1, debugLimit);
+                config.OpenSettingsOnLoad = openCfg;
                 saveConfig();
             }
         }
@@ -186,11 +210,10 @@ namespace AiCompanionPlugin
             Dalamud.Bindings.ImGui.ImGui.TextDisabled("Backend / Model");
             Dalamud.Bindings.ImGui.ImGui.Separator();
 
-            // Base URL
             TextInline("Base URL");
             Dalamud.Bindings.ImGui.ImGui.SameLine();
             Dalamud.Bindings.ImGui.ImGui.SetNextItemWidth(420f);
-            if (Utf8InputText(L("##base_url"), ref baseUrlBuffer, ref bufBaseUrl, 1024, allowEmpty: true)) { }
+            Utf8InputText(L("##base_url"), ref baseUrlBuffer, ref bufBaseUrl, 1024, true);
             if (Dalamud.Bindings.ImGui.ImGui.Button(L("Apply Base URL")))
             {
                 if (!string.IsNullOrWhiteSpace(baseUrlBuffer))
@@ -198,22 +221,20 @@ namespace AiCompanionPlugin
                 saveConfig();
             }
 
-            // API Key
             TextInline("API Key");
             Dalamud.Bindings.ImGui.ImGui.SameLine();
             Dalamud.Bindings.ImGui.ImGui.SetNextItemWidth(420f);
-            if (Utf8InputText(L("##api_key"), ref apiKeyBuffer, ref bufApiKey, 2048, allowEmpty: true)) { }
+            Utf8InputText(L("##api_key"), ref apiKeyBuffer, ref bufApiKey, 2048, true);
             if (Dalamud.Bindings.ImGui.ImGui.Button(L("Apply API Key")))
             {
                 config.ApiKey = apiKeyBuffer ?? string.Empty;
                 saveConfig();
             }
 
-            // Model
             TextInline("Model");
             Dalamud.Bindings.ImGui.ImGui.SameLine();
             Dalamud.Bindings.ImGui.ImGui.SetNextItemWidth(340f);
-            if (Utf8InputText(L("##model"), ref modelBuffer, ref bufModel, 256, allowEmpty: false)) { }
+            Utf8InputText(L("##model"), ref modelBuffer, ref bufModel, 256, false);
             if (Dalamud.Bindings.ImGui.ImGui.Button(L("Apply Model")))
             {
                 if (!string.IsNullOrWhiteSpace(modelBuffer))
@@ -221,7 +242,6 @@ namespace AiCompanionPlugin
                 saveConfig();
             }
 
-            // Temperature
             double temp = config.Temperature;
             Dalamud.Bindings.ImGui.ImGui.SetNextItemWidth(160f);
             if (Dalamud.Bindings.ImGui.ImGui.InputDouble(L("Temperature"), ref temp))
@@ -230,7 +250,6 @@ namespace AiCompanionPlugin
                 saveConfig();
             }
 
-            // Max Tokens
             int maxTokens = config.MaxTokens;
             TextInline("Max Tokens (0 = auto)");
             Dalamud.Bindings.ImGui.ImGui.SameLine();
@@ -241,7 +260,6 @@ namespace AiCompanionPlugin
                 saveConfig();
             }
 
-            // Timeout
             int timeout = config.RequestTimeoutSeconds;
             TextInline("Request Timeout (s)");
             Dalamud.Bindings.ImGui.ImGui.SameLine();
@@ -252,7 +270,6 @@ namespace AiCompanionPlugin
                 saveConfig();
             }
 
-            // History size
             int hist = config.MaxHistoryMessages;
             TextInline("History Messages");
             Dalamud.Bindings.ImGui.ImGui.SameLine();
@@ -310,7 +327,6 @@ namespace AiCompanionPlugin
                 saveConfig();
             }
 
-            // Memory file path
             TextInline("Memories File (relative)");
             Dalamud.Bindings.ImGui.ImGui.SameLine();
             Dalamud.Bindings.ImGui.ImGui.SetNextItemWidth(420f);
@@ -338,7 +354,6 @@ namespace AiCompanionPlugin
                 saveConfig();
             }
 
-            // Style
             TextInline("Style");
             Dalamud.Bindings.ImGui.ImGui.SameLine();
             Dalamud.Bindings.ImGui.ImGui.SetNextItemWidth(200f);
@@ -363,7 +378,6 @@ namespace AiCompanionPlugin
                 saveConfig();
             }
 
-            // File path
             TextInline("Chronicle File (relative)");
             Dalamud.Bindings.ImGui.ImGui.SameLine();
             Dalamud.Bindings.ImGui.ImGui.SetNextItemWidth(420f);
@@ -381,28 +395,83 @@ namespace AiCompanionPlugin
             }
         }
 
-        private void DrawRouting()
+        private void DrawPersona()
         {
-            Dalamud.Bindings.ImGui.ImGui.TextDisabled("Triggers");
+            Dalamud.Bindings.ImGui.ImGui.TextDisabled("Persona / System Prompt");
             Dalamud.Bindings.ImGui.ImGui.Separator();
 
-            // Say Trigger (stage local)
+            TextInline("persona.txt (relative)");
+            Dalamud.Bindings.ImGui.ImGui.SameLine();
+            Dalamud.Bindings.ImGui.ImGui.SetNextItemWidth(420f);
+            Utf8Sync(personaPath, ref bufPersonaRel);
+            bool pChanged = Dalamud.Bindings.ImGui.ImGui.InputText(L("##persona_rel"), bufPersonaRel.AsSpan(), Dalamud.Bindings.ImGui.ImGuiInputTextFlags.None);
+            personaPath = Utf8ToString(bufPersonaRel);
+            if (Dalamud.Bindings.ImGui.ImGui.Button(L("Apply Persona Path")) || pChanged)
+            {
+                if (string.IsNullOrWhiteSpace(personaPath))
+                    personaPath = "persona.txt";
+                config.PersonaFileRelative = personaPath.Trim();
+                saveConfig();
+            }
+
+            Dalamud.Bindings.ImGui.ImGui.Spacing();
+            Dalamud.Bindings.ImGui.ImGui.TextDisabled("Override (optional)");
+            Dalamud.Bindings.ImGui.ImGui.Separator();
+
+            // Multi-line override input
+            Utf8Sync(personaOverride, ref bufPersonaOv);
+            var flags = Dalamud.Bindings.ImGui.ImGuiInputTextFlags.AllowTabInput;
+            bool ovChanged = Dalamud.Bindings.ImGui.ImGui.InputTextMultiline(L("##persona_override"), bufPersonaOv.AsSpan(), new Vector2(-1, 180), flags);
+            personaOverride = Utf8ToString(bufPersonaOv);
+
+            if (Dalamud.Bindings.ImGui.ImGui.Button(L("Apply Override")))
+            {
+                config.SystemPromptOverride = personaOverride ?? string.Empty;
+                saveConfig();
+            }
+            Dalamud.Bindings.ImGui.ImGui.SameLine();
+            if (Dalamud.Bindings.ImGui.ImGui.Button(L("Clear Override")))
+            {
+                config.SystemPromptOverride = string.Empty;
+                personaOverride = string.Empty;
+                Array.Clear(bufPersonaOv, 0, bufPersonaOv.Length);
+                saveConfig();
+            }
+
+            Dalamud.Bindings.ImGui.ImGui.Spacing();
+            Dalamud.Bindings.ImGui.ImGui.TextDisabled("Effective Prompt Preview");
+            Dalamud.Bindings.ImGui.ImGui.Separator();
+
+            string preview = getPersonaPreview?.Invoke() ?? "(no preview available)";
+            // Show up to ~1k chars
+            if (preview.Length > 1000) preview = preview[..1000] + " …";
+            Dalamud.Bindings.ImGui.ImGui.PushTextWrapPos(0);
+            Dalamud.Bindings.ImGui.ImGui.TextUnformatted(preview);
+            Dalamud.Bindings.ImGui.ImGui.PopTextWrapPos();
+        }
+
+        private void DrawRouting()
+        {
+            Dalamud.Bindings.ImGui.ImGui.TextDisabled("Triggers & Whitelist");
+            Dalamud.Bindings.ImGui.ImGui.Separator();
+
+            // Say Trigger
             var sayTrig = config.SayTrigger ?? string.Empty;
             TextInline("Say Trigger");
             Dalamud.Bindings.ImGui.ImGui.SameLine();
             Dalamud.Bindings.ImGui.ImGui.SetNextItemWidth(200f);
-            if (Utf8InputText(L("##say_trigger"), ref sayTrig, ref bufModel, 128, allowEmpty: true))
+            if (Utf8InputText(L("##say_trigger"), ref sayTrig, ref bufModel, 128, true))
             {
                 config.SayTrigger = sayTrig.Trim();
                 saveConfig();
             }
 
-            // Party Trigger (stage local)
+            // Party Trigger
             var partyTrig = config.PartyTrigger ?? string.Empty;
             TextInline("Party Trigger");
             Dalamud.Bindings.ImGui.ImGui.SameLine();
             Dalamud.Bindings.ImGui.ImGui.SetNextItemWidth(200f);
-            if (Utf8InputText(L("##party_trigger"), ref partyTrig, ref bufModel, 128, allowEmpty: true))
+            if (Utf8InputText(L("##party_trigger"), ref partyTrig, ref bufModel, 128, true))
             {
                 config.PartyTrigger = partyTrig.Trim();
                 saveConfig();
@@ -434,7 +503,6 @@ namespace AiCompanionPlugin
                 Array.Clear(bufSayAdd, 0, bufSayAdd.Length);
                 saveConfig();
             }
-
             RenderList(config.SayWhitelist, "##say_wl_", saveConfig);
 
             Dalamud.Bindings.ImGui.ImGui.Spacing();
@@ -456,8 +524,35 @@ namespace AiCompanionPlugin
                 Array.Clear(bufPartyAdd, 0, bufPartyAdd.Length);
                 saveConfig();
             }
-
             RenderList(config.PartyWhitelist, "##party_wl_", saveConfig);
+
+            Dalamud.Bindings.ImGui.ImGui.Spacing();
+            Dalamud.Bindings.ImGui.ImGui.TextDisabled("Send Test");
+            Dalamud.Bindings.ImGui.ImGui.Separator();
+
+            // Test to /say
+            TextInline("Text");
+            Dalamud.Bindings.ImGui.ImGui.SameLine();
+            Dalamud.Bindings.ImGui.ImGui.SetNextItemWidth(340f);
+            Utf8Sync(testSayText, ref bufTestSay);
+            Dalamud.Bindings.ImGui.ImGui.InputText(L("##test_say"), bufTestSay.AsSpan(), Dalamud.Bindings.ImGui.ImGuiInputTextFlags.None);
+            testSayText = Utf8ToString(bufTestSay);
+            Dalamud.Bindings.ImGui.ImGui.SameLine();
+            bool btnSay = Dalamud.Bindings.ImGui.ImGui.Button(L("Send to /say"));
+            if (btnSay && sendTestSay is not null)
+                sendTestSay.Invoke(testSayText);
+
+            // Test to /party
+            TextInline("Text");
+            Dalamud.Bindings.ImGui.ImGui.SameLine();
+            Dalamud.Bindings.ImGui.ImGui.SetNextItemWidth(340f);
+            Utf8Sync(testPartyText, ref bufTestParty);
+            Dalamud.Bindings.ImGui.ImGui.InputText(L("##test_party"), bufTestParty.AsSpan(), Dalamud.Bindings.ImGui.ImGuiInputTextFlags.None);
+            testPartyText = Utf8ToString(bufTestParty);
+            Dalamud.Bindings.ImGui.ImGui.SameLine();
+            bool btnParty = Dalamud.Bindings.ImGui.ImGui.Button(L("Send to /party"));
+            if (btnParty && sendTestParty is not null)
+                sendTestParty.Invoke(testPartyText);
         }
 
         // ===================== HELPERS =====================
@@ -465,9 +560,6 @@ namespace AiCompanionPlugin
         private static void TextInline(string label)
             => Dalamud.Bindings.ImGui.ImGui.TextUnformatted(label);
 
-        /// <summary>
-        /// Byte-buffer InputText helper that edits a managed string value.
-        /// </summary>
         private static bool Utf8InputText(ReadOnlySpan<byte> label, ref string value, ref byte[] scratch, int minCapacity, bool allowEmpty)
         {
             value ??= string.Empty;
@@ -535,7 +627,6 @@ namespace AiCompanionPlugin
                 Dalamud.Bindings.ImGui.ImGui.BulletText(item);
                 Dalamud.Bindings.ImGui.ImGui.SameLine();
 
-                // Build and cache a UTF-8 label for the remove button
                 var removeId = $"{idPrefix}Remove{i}";
                 if (Dalamud.Bindings.ImGui.ImGui.SmallButton(L(removeId)))
                 {

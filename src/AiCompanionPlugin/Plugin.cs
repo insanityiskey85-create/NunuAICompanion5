@@ -37,7 +37,7 @@ namespace AiCompanionPlugin
         private readonly PersonaManager persona;
         private NativeChatPipe? nativePipe;
         private ChatTwoBridge? chatTwo;
-        private ChatRouter? router;
+        private IChatRouter? router;
 
         // memory history for ChatWindow
         private readonly List<(string role, string content)> history = new();
@@ -55,9 +55,29 @@ namespace AiCompanionPlugin
             // seed
             history.Add(("system", "Nunu tunes her voidbound lute. WAH!"));
 
-            // UI
-            settingsWindow = new SettingsWindow(config, SaveConfigSafe);
-            chatWindow = new ChatWindow(config, GetHistory, SendUserMessage);
+            // UI: wire persona preview + test send delegates
+            settingsWindow = new SettingsWindow(
+                config,
+                SaveConfigSafe,
+                getPersonaPreview: () => persona.GetSystemPrompt(),
+                sendTestSay: (s) => TrySendChannel(XivChatType.Say, s),
+                sendTestParty: (s) => TrySendChannel(XivChatType.Party, s)
+            );
+
+            // pass a tiny shim to ChatWindow to send directly to channels
+            chatWindow = new ChatWindow(
+                config,
+                GetHistory,
+                SendUserMessage,
+                trySendChannel: (type, text) =>
+                {
+                    // 1 => Say, 2 => Party (avoid bringing in XivChatType into ChatWindow signature)
+                    return type switch
+                    {
+                        2 => TrySendChannel(XivChatType.Party, text),
+                        _ => TrySendChannel(XivChatType.Say, text),
+                    };
+                });
 
             // hook UI
             pi.UiBuilder.Draw += DrawUI;
@@ -67,6 +87,8 @@ namespace AiCompanionPlugin
             TryLogInfo("Constructed. Systems will finalize on first draw.");
         }
 
+        private bool TrySendChannel(XivChatType party, object text) => throw new NotImplementedException();
+
         private void LateInit()
         {
             if (nativePipe == null)
@@ -74,7 +96,7 @@ namespace AiCompanionPlugin
             if (chatTwo == null)
                 chatTwo = new ChatTwoBridge(PluginInterface, Log);
             if (router == null && ChatGui != null)
-                router = new ChatRouter(config, ChatGui, Log, OnIncomingTrigger);
+                router = new IChatRouter(config, ChatGui, Log, OnIncomingTrigger);
         }
 
         private void DrawUI()
@@ -130,13 +152,19 @@ namespace AiCompanionPlugin
             history.Add(("user", message));
             TryLogInfo($"User -> {message}");
 
-            // Here is where you'd assemble the system prompt with persona:
+            // Build prompt with persona (effective system prompt)
             var systemPrompt = persona.GetSystemPrompt();
-            // TODO: call your AI client using systemPrompt + history (not included here).
+            // TODO: Call your AI client with (systemPrompt, history, message) and capture reply.
 
-            // For now, echo to prove flow:
+            // Placeholder reply for flow proof:
             var reply = $"♪ {config.AiDisplayName}: {message}";
             history.Add(("assistant", reply));
+
+            // Also post assistant reply to chat if toggled
+            if (config.PostAssistantToSay)
+                TrySendChannel(XivChatType.Say, reply);
+            if (config.PostAssistantToParty)
+                TrySendChannel(XivChatType.Party, reply);
         }
 
         // Incoming chat trigger -> send to model, send a response to chat
@@ -144,26 +172,27 @@ namespace AiCompanionPlugin
         {
             TryLogInfo($"Trigger from [{from}] via {sourceType}: {payload}");
 
-            // TODO: Use AI client; for now fabricate a short reply
-            var reply = $"To {from}: {payload} — WAH~";
+            // TODO: Use AI client; placeholder uses persona name
+            var who = string.IsNullOrWhiteSpace(config.AiDisplayName) ? "Nunu" : config.AiDisplayName;
+            var reply = $"{who}: {payload} — WAH~";
 
-            // Route reply back to the same channel
+            // Always reply into the same channel when triggered
             if (!TrySendChannel(sourceType, reply))
-            {
                 ChatGui?.Print($"[AI Companion] {reply}");
-            }
+
+            // Mirror into UI history too
+            history.Add(("assistant", reply));
         }
 
-        private bool TrySendChannel(XivChatType type, string text)
+        internal bool TrySendChannel(XivChatType type, string text)
         {
             var sent = false;
 
-            // IPC first, then native
             if (type == XivChatType.Party)
             {
                 sent = chatTwo?.TrySendParty(text) == true || nativePipe?.TrySendParty(text) == true;
             }
-            else // say/shout/yell treated as say
+            else // treat say/shout/yell as say
             {
                 sent = chatTwo?.TrySendSay(text) == true || nativePipe?.TrySendSay(text) == true;
             }
@@ -198,14 +227,5 @@ namespace AiCompanionPlugin
 
             TryLogInfo("Disposed.");
         }
-    }
-
-    internal class ChatRouter
-    {
-        public ChatRouter(Configuration config, IChatGui chatGui, IPluginLog? log, Action<string, XivChatType, string> onIncomingTrigger)
-        {
-        }
-
-        internal void Dispose() => throw new NotImplementedException();
     }
 }

@@ -33,18 +33,16 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<!-- Core Dalamud runtime (includes Dalamud.Plugin, Services, and IPC namespaces) -->
 		<Reference Include="Dalamud">
 			<HintPath>$(DalamudLibPath)\Dalamud.dll</HintPath>
 			<Private>false</Private>
 		</Reference>
-
-		<!-- Use Dalamud-provided ImGui bindings, NOT ImGuiNET -->
 		<Reference Include="Dalamud.Bindings.ImGui">
 			<HintPath>$(DalamudLibPath)\Dalamud.Bindings.ImGui.dll</HintPath>
 			<Private>false</Private>
 		</Reference>
 	</ItemGroup>
+
 
 	<!-- Optional: copy persona/memory templates into build output for convenience -->
 	<ItemGroup>

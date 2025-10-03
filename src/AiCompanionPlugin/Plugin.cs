@@ -17,94 +17,63 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IPluginLog PluginLog { get; private set; } = null!;
     [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
 
-    private static Plugin? Instance;
-
     private readonly WindowSystem windowSystem = new("AI Companion");
     private readonly Configuration config;
     private readonly PersonaManager personaManager;
-    private readonly MemoryManager memoryManager;
-    private readonly ChronicleManager chronicleManager;
     private readonly AiClient aiClient;
-    private readonly ChatPipe chatPipe;
-    private readonly AutoRouteListener autoListener;
-
+    private readonly ChatPipe pipe;
     private readonly ChatWindow chatWindow;
     private readonly SettingsWindow settingsWindow;
-    private readonly ChronicleWindow chronicleWindow;
+    private readonly AutoRouteListener autoRoute;
+    private readonly PartyListener partyListener;
+    private readonly SayListener sayListener;
 
-    private const string CommandChat = "/aic";
-    private const string CommandChron = "/aiclog";
+    private const string Command = "/aic";
 
     public Plugin()
     {
-        Instance = this;
-
         config = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
         config.Initialize(PluginInterface);
 
         personaManager = new PersonaManager(PluginInterface, PluginLog, config);
-        memoryManager = new MemoryManager(PluginInterface, PluginLog, config);
-        chronicleManager = new ChronicleManager(PluginInterface, PluginLog, config);
         aiClient = new AiClient(PluginLog, config, personaManager);
+        pipe = new ChatPipe(CommandManager, PluginLog, config, Framework, ChatGui, PluginInterface);
 
-        chatWindow = new ChatWindow(PluginLog, aiClient, config, personaManager, memoryManager, chronicleManager, pipe: null! /* temp */);
-        chatPipe = new ChatPipe(CommandManager, PluginLog, config, Framework, ChatGui);
-        // re-create window with a valid pipe reference
-        chatWindow = new ChatWindow(PluginLog, aiClient, config, personaManager, memoryManager, chronicleManager, chatPipe);
-
-        settingsWindow = new SettingsWindow(config, personaManager, memoryManager, chronicleManager);
-        chronicleWindow = new ChronicleWindow(config, chronicleManager);
+        chatWindow = new ChatWindow(PluginLog, aiClient, config, personaManager, pipe);
+        settingsWindow = new SettingsWindow(config, personaManager);
 
         windowSystem.AddWindow(chatWindow);
         windowSystem.AddWindow(settingsWindow);
-        windowSystem.AddWindow(chronicleWindow);
 
-        // Listener now pushes into the chat window and prepares replies for manual posting
-        autoListener = new AutoRouteListener(ChatGui, PluginLog, config, aiClient, chatPipe, chatWindow);
+        autoRoute = new AutoRouteListener(PluginLog, ChatGui, config);
+        partyListener = new PartyListener(PluginLog, ChatGui, config, aiClient, pipe);
+        sayListener = new SayListener(PluginLog, ChatGui, config, aiClient, pipe);
 
         PluginInterface.UiBuilder.Draw += DrawUi;
         PluginInterface.UiBuilder.OpenConfigUi += ToggleSettings;
 
-        CommandManager.AddHandler(CommandChat, new CommandInfo(OnChat) { HelpMessage = "Open AI Companion chat window" });
-        CommandManager.AddHandler(CommandChron, new CommandInfo(OnChron) { HelpMessage = "Open AI Companion chronicle window" });
+        CommandManager.AddHandler(Command, new CommandInfo(OnCommand) { HelpMessage = "Open AI Companion chat window" });
 
         PluginLog.Info("[AI Companion] Initialized with channel bridge.");
     }
 
-    private void OnChat(string command, string args) => chatWindow.IsOpen = true;
-    private void OnChron(string command, string args) => chronicleWindow.IsOpen = true;
-
+    private void OnCommand(string command, string args) => chatWindow.IsOpen = true;
     private void ToggleSettings() => settingsWindow.IsOpen = true;
-
-    private void DrawUi()
-    {
-        try { windowSystem.Draw(); }
-        catch (Exception ex) { PluginLog.Error(ex, "WindowSystem.Draw failed"); }
-    }
-
-    public static void OpenSettingsWindow() => Instance?.settingsWindow.Open();
+    private void DrawUi() => windowSystem.Draw();
 
     public void Dispose()
     {
-        CommandManager.RemoveHandler(CommandChat);
-        CommandManager.RemoveHandler(CommandChron);
+        CommandManager.RemoveHandler(Command);
         PluginInterface.UiBuilder.Draw -= DrawUi;
         PluginInterface.UiBuilder.OpenConfigUi -= ToggleSettings;
 
-        windowSystem.RemoveAllWindows();
+        autoRoute.Dispose();
+        partyListener.Dispose();
+        sayListener.Dispose();
 
-        autoListener.Dispose();
-        chatPipe.Dispose();
+        windowSystem.RemoveAllWindows();
         aiClient.Dispose();
         personaManager.Dispose();
-        memoryManager.Dispose();
-        chronicleManager.Dispose();
-
-        Instance = null;
+        pipe.Dispose();
     }
-}
-
-file static class WindowExt
-{
-    public static void Open(this Window w) => w.IsOpen = true;
 }

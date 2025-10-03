@@ -1,6 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Dalamud.Game.Text;
@@ -11,62 +9,70 @@ namespace AiCompanionPlugin;
 
 public sealed class PartyListener : IDisposable
 {
-    private readonly IChatGui chat;
     private readonly IPluginLog log;
+    private readonly IChatGui chat;
     private readonly Configuration config;
     private readonly AiClient client;
     private readonly ChatPipe pipe;
-    private static readonly char[] separator = new[] { ' ' };
 
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
-    public PartyListener(IChatGui chat, IPluginLog log, Configuration config, AiClient client, ChatPipe pipe)
+    public PartyListener(IPluginLog log, IChatGui chat, Configuration config, AiClient client, ChatPipe pipe)
     {
-        this.chat = chat;
         this.log = log;
+        this.chat = chat;
         this.config = config;
         this.client = client;
         this.pipe = pipe;
-        this.chat.ChatMessage += OnChatMessage;
+
+        chat.CheckMessageHandled += OnChatMessage;
     }
 
     private void OnChatMessage(XivChatType type, int timestamp, ref SeString sender, ref SeString message, ref bool isHandled)
     {
-        throw new NotImplementedException();
-    }
+        if (type != XivChatType.Party || !config.EnablePartyListener) return;
 
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
-    private async Task RespondStreamAsync(string prompt, string caller)
-    {
-        try
+        var t = config.PartyTrigger?.Trim();
+        var text = message.TextValue ?? string.Empty;
+        var name = sender.TextValue ?? string.Empty;
+
+        if (string.IsNullOrWhiteSpace(t) || !text.TrimStart().StartsWith(t, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        if (config.RequireWhitelist && !config.PartyWhitelist.Contains(name))
+            return;
+
+        var prompt = text.Trim().Substring(t.Length).Trim();
+        if (string.IsNullOrEmpty(prompt)) return;
+
+        // Echo line (debug only)
+        if (config.DebugChatTap)
         {
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
-
-            if (config.PartyEchoCallerPrompt)
-            {
-                var aiName = string.IsNullOrWhiteSpace(config.AiDisplayName) ? "AI Nunu" : config.AiDisplayName;
-                var echo = (config.PartyCallerEchoFormat ?? "{caller} -> {ai}: {prompt}")
-                    .Replace("{caller}", caller).Replace("{ai}", aiName).Replace("{prompt}", prompt);
-                await pipe.SendToAsync(ChatRoute.Party, echo, cts.Token, addPrefix: false).ConfigureAwait(false);
-            }
-
-            var ai = string.IsNullOrWhiteSpace(config.AiDisplayName) ? "AI Nunu" : config.AiDisplayName;
-            var format = config.PartyAiReplyFormat ?? "{ai} -> {caller}: {reply}";
-            var header = format.Replace("{ai}", ai).Replace("{caller}", caller).Replace("{reply}", string.Empty);
-
-            var tokens = client.ChatStreamAsync([], $"Caller: {caller}\n\n{prompt}", cts.Token);
-            await pipe.SendStreamingToAsync(ChatRoute.Party, tokens, header, cts.Token).ConfigureAwait(false);
+            var echo = config.PartyCallerEchoFormat
+                .Replace("{caller}", name)
+                .Replace("{text}", prompt);
+            chat.Print(echo);
         }
-        catch (OperationCanceledException) { }
-        catch (Exception ex) { log.Error(ex, "PartyListener RespondStreamAsync error"); }
+
+        // Stream reply back out to Party
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                // header for first line—optional
+                var header = $"AI Nunu → {name}: ";
+                await pipe.SendStreamingToAsync(ChatRoute.Party,
+                    client.ChatStreamAsync(new System.Collections.Generic.List<ChatMessage>(), prompt, CancellationToken.None),
+                    header,
+                    CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                log.Error(ex, "[PartyListener] stream failed");
+            }
+        });
     }
 
-    private static string NormalizeName(string name)
+    public void Dispose()
     {
-        var n = name ?? string.Empty;
-        var at = n.IndexOf('@'); if (at >= 0) n = n[..at];
-        return string.Join(' ', n.Split(separator, StringSplitOptions.RemoveEmptyEntries));
+        chat.CheckMessageHandled -= OnChatMessage;
     }
-
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
-    public void Dispose() => chat.ChatMessage -= OnChatMessage;
 }

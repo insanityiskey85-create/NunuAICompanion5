@@ -11,17 +11,16 @@ namespace AiCompanionPlugin;
 
 public sealed class Plugin : IDalamudPlugin
 {
-    public static string Name => "AI Companion";
+    public string Name => "AI Companion";
 
-    [PluginService][System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")] internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
-    [PluginService][System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")] internal static ICommandManager CommandManager { get; private set; } = null!;
-    [PluginService][System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")] internal static IFramework Framework { get; private set; } = null!;
-    [PluginService][System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")] internal static IPluginLog PluginLog { get; private set; } = null!;
-    [PluginService][System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")] internal static IChatGui ChatGui { get; private set; } = null!;
+    [PluginService] internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
+    [PluginService] internal static ICommandManager CommandManager { get; private set; } = null!;
+    [PluginService] internal static IFramework Framework { get; private set; } = null!;
+    [PluginService] internal static IPluginLog PluginLog { get; private set; } = null!;
+    [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
 
     private static Plugin? Instance;
 
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     private readonly WindowSystem windowSystem = new("AI Companion");
     private readonly Configuration config;
     private readonly PersonaManager personaManager;
@@ -30,39 +29,30 @@ public sealed class Plugin : IDalamudPlugin
     private readonly AiClient aiClient;
     private readonly ChatPipe chatPipe;
     private readonly AutoRouteListener autoListener;
+
     private readonly ChatWindow chatWindow;
     private readonly SettingsWindow settingsWindow;
     private readonly ChronicleWindow chronicleWindow;
 
-    private const string CommandChat = "/aic";
+    private const string CommandChat  = "/aic";
     private const string CommandChron = "/aiclog";
-    private const string CommandParty = "/aiparty";
-    private const string CommandSay = "/aisay";
 
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
-    public Plugin(IDisposable disposable, IDalamudPluginInterface pluginInterface)
+    public Plugin()
     {
         Instance = this;
 
-        config = pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
+        config = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
         config.Initialize(PluginInterface);
 
-        personaManager = new PersonaManager(PluginInterface, PluginLog, config);
-        memoryManager = new MemoryManager(PluginInterface, PluginLog, config);
+        personaManager   = new PersonaManager(PluginInterface, PluginLog, config);
+        memoryManager    = new MemoryManager(PluginInterface, PluginLog, config);
         chronicleManager = new ChronicleManager(PluginInterface, PluginLog, config);
-        aiClient = new AiClient(PluginLog, config, personaManager);
-        // ... inside Plugin class constructor, replace ChatPipe creation with:
-        // replace previous ChatPipe ctor call:
-        // In the constructor (where you build services)
-        chatPipe = new ChatPipe(CommandManager, PluginLog, config, Framework, ChatGui);
-        disposable?.Dispose();
+        aiClient         = new AiClient(PluginLog, config, personaManager);
+        chatPipe         = new ChatPipe(CommandManager, PluginLog, config, Framework, ChatGui);
+        autoListener     = new AutoRouteListener(ChatGui, PluginLog, config, aiClient, chatPipe);
 
-
-
-        autoListener = new AutoRouteListener(ChatGui, PluginLog, config, aiClient, chatPipe);
-
-        chatWindow = new ChatWindow(PluginLog, aiClient, config, personaManager, memoryManager, chronicleManager, chatPipe);
-        settingsWindow = new SettingsWindow(config, personaManager, memoryManager, chronicleManager);
+        chatWindow      = new ChatWindow(PluginLog, aiClient, config, personaManager, memoryManager, chronicleManager, chatPipe);
+        settingsWindow  = new SettingsWindow(config, personaManager, memoryManager, chronicleManager);
         chronicleWindow = new ChronicleWindow(config, chronicleManager);
 
         windowSystem.AddWindow(chatWindow);
@@ -72,59 +62,60 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.Draw += DrawUi;
         PluginInterface.UiBuilder.OpenConfigUi += ToggleSettings;
 
-        CommandManager.AddHandler(CommandChat, new CommandInfo(OnChat) { HelpMessage = "Open AI Companion chat window" });
+        CommandManager.AddHandler(CommandChat,  new CommandInfo(OnChat)  { HelpMessage = "Open AI Companion chat window" });
         CommandManager.AddHandler(CommandChron, new CommandInfo(OnChron) { HelpMessage = "Open AI Nunu Chronicle window" });
-        CommandManager.AddHandler(CommandParty, new CommandInfo(OnParty) { HelpMessage = "Send text to Party (/aiparty message)" });
-        CommandManager.AddHandler(CommandSay, new CommandInfo(OnSay) { HelpMessage = "Send text to Say (/aisay message)" });
+
+        PluginLog.Info("[AI Companion] Plugin initialized; windows registered.");
     }
 
-    private void OnSay(string command, string arguments) => throw new NotImplementedException();
-    private void OnChat(string command, string args) => chatWindow.IsOpen = true;
-    private void OnChron(string command, string args) => chronicleWindow.IsOpen = true;
-
-    private void OnParty(string command, string args)
+    private void OnChat(string command, string args)
     {
-        if (!config.EnablePartyPipe) { ChatGui.PrintError("[AI Companion] Party Pipe is disabled."); return; }
-        var msg = (args ?? string.Empty).Trim();
-        if (string.IsNullOrWhiteSpace(msg)) { ChatGui.PrintError("[AI Companion] /aiparty <message>"); return; }
-        _ = SafeRouteSendAsync(ChatRoute.Party, msg);
+        PluginLog.Info("[AI Companion] /aic invoked.");
+        chatWindow.IsOpen = true;
     }
 
-    private async Task SafeRouteSendAsync(ChatRoute route, string text)
+    private void OnChron(string command, string args)
     {
-        try
-        {
-            using var cts = new CancellationTokenSource();
-            await chatPipe.SendToAsync(route, text, cts.Token).ConfigureAwait(false);
-        }
+        PluginLog.Info("[AI Companion] /aiclog invoked.");
+        chronicleWindow.IsOpen = true;
+    }
+
+    private void ToggleSettings()
+    {
+        PluginLog.Info("[AI Companion] OpenConfigUi invoked.");
+        settingsWindow.IsOpen = true;
+    }
+
+    private void DrawUi()
+    {
+        try { windowSystem.Draw(); }
         catch (Exception ex)
         {
-            PluginLog.Error(ex, $"{route} pipe failed");
-            ChatGui.PrintError($"[AI Companion] Failed to send to {route.ToString().ToLower()}.");
+            PluginLog.Error(ex, "WindowSystem.Draw failed");
         }
     }
 
-    private void ToggleSettings() => settingsWindow.IsOpen = true;
-    private void DrawUi() => windowSystem.Draw();
-
     public static void OpenSettingsWindow() => Instance?.settingsWindow.Open();
-    public static void OpenChronicleWindow() => Instance?.chronicleWindow.Open();
+    public static void OpenChatWindow() => Instance?.chatWindow.Open();
 
     public void Dispose()
     {
+        // ... inside Dispose()
         CommandManager.RemoveHandler(CommandChat);
         CommandManager.RemoveHandler(CommandChron);
-        CommandManager.RemoveHandler(CommandParty);
-        CommandManager.RemoveHandler(CommandSay);
         PluginInterface.UiBuilder.Draw -= DrawUi;
         PluginInterface.UiBuilder.OpenConfigUi -= ToggleSettings;
+
         windowSystem.RemoveAllWindows();
         autoListener.Dispose();
+        chatPipe.Dispose(); // <- direct call now that ChatPipe : IDisposable
         aiClient.Dispose();
         personaManager.Dispose();
         memoryManager.Dispose();
         chronicleManager.Dispose();
+
         Instance = null;
+
     }
 }
 

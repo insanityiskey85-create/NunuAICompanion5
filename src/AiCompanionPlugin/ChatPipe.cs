@@ -12,11 +12,10 @@ namespace AiCompanionPlugin;
 public enum ChatRoute { Party, Say }
 
 /// <summary>
-/// Outbound router to /party or /say. Enqueues actual sends to OutboundDispatcher,
-/// so they occur on a clean Framework tick. Uses direct ChatGui methods if present,
-/// otherwise falls back to ICommandManager.ProcessCommand.
+/// Outbound router to /party or /say. Enqueues sends to OutboundDispatcher
+/// so they occur on a clean Framework tick.
 /// </summary>
-public sealed class ChatPipe
+public sealed class ChatPipe : IDisposable
 {
     private readonly ICommandManager commands;
     private readonly IPluginLog log;
@@ -28,9 +27,6 @@ public sealed class ChatPipe
     private readonly MethodInfo? sendChat;
     private readonly MethodInfo? sendMessage;
 
-    public OutboundDispatcher Dispatcher => dispatcher;
-
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     public ChatPipe(ICommandManager commands, IPluginLog log, Configuration config, IFramework framework, IChatGui chat)
     {
         this.commands = commands;
@@ -39,7 +35,6 @@ public sealed class ChatPipe
         this.chat = chat;
         this.dispatcher = new OutboundDispatcher(framework, log) { MinIntervalMs = Math.Max(200, config.SayPostDelayMs / 2) };
 
-        // Try to discover a direct send method on ChatGui (API variants differ).
         var implType = chat.GetType();
         sendChat = implType.GetMethod("SendChat", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, new Type[] { typeof(string) });
         sendMessage = implType.GetMethod("SendMessage", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, new Type[] { typeof(string) });
@@ -63,8 +58,6 @@ public sealed class ChatPipe
         };
     }
 
-    /// <summary>Send a whole message to the route, chunked. Returns false if route disabled.</summary>
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     public async Task<bool> SendToAsync(ChatRoute route, string? text, CancellationToken token = default, bool addPrefix = true)
     {
         var (cmd, chunkSize, delay, _, _, enabled, aiPrefix) = GetRouteParams(route);
@@ -81,8 +74,6 @@ public sealed class ChatPipe
         return true;
     }
 
-    /// <summary>Stream tokens to route with header on first line and continuation thereafter.</summary>
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     public async Task<bool> SendStreamingToAsync(ChatRoute route, IAsyncEnumerable<string> tokens, string headerForFirstLine, CancellationToken token = default)
     {
         var (cmd, chunkSize, delay, flushChars, flushMs, enabled, aiPrefix) = GetRouteParams(route);
@@ -130,7 +121,6 @@ public sealed class ChatPipe
             }
         }
 
-        // Final flush
         while (sb.Length > 0)
         {
             token.ThrowIfCancellationRequested();
@@ -145,21 +135,17 @@ public sealed class ChatPipe
         return true;
     }
 
-    // ---- core send path (queued to dispatcher) ----
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     private Task SendLineAsync(string cmdPrefix, string line, CancellationToken token)
     {
         var text = line;
         if (config.NetworkAsciiOnly) text = StripNonAscii(text);
-
         var full = cmdPrefix + text;
 
         var tcs = new TaskCompletionSource();
-        Dispatcher.Enqueue(() =>
+        dispatcher.Enqueue(() =>
         {
             try
             {
-                // Try direct ChatGui method first
                 if (sendChat != null)
                 {
                     var arg = text.StartsWith("/") ? text : full;
@@ -204,7 +190,6 @@ public sealed class ChatPipe
             return tcs.Task;
     }
 
-    // ---- chunking + sanitizing helpers ----
     private IEnumerable<string> PrepareForNetwork(string text, string prefix, int chunkSize)
     {
         text = text.Replace("\r\n", "\n").Trim();
@@ -306,12 +291,5 @@ public sealed class ChatPipe
 
     private static string San(string s) => s == null ? string.Empty : StripNonAscii(s);
 
-    public void Dispose() => Dispatcher.Dispose();
-
-#pragma warning disable CS1998 // Async method lacks 'await' operators and will run synchronously
-    internal async Task SendToPartyAsync(string text, CancellationToken token)
-#pragma warning restore CS1998 // Async method lacks 'await' operators and will run synchronously
-    {
-        throw new NotImplementedException();
-    }
+    public void Dispose() => dispatcher.Dispose();
 }

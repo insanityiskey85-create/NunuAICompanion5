@@ -2,7 +2,7 @@
   "Author": "The Real Nunu",
   "Name": "AI Companion",
   "InternalName": "AiCompanionPlugin",
-  "AssemblyVersion": "5.0.0.0",
+  "AssemblyVersion": "5.0.0.2",
   "Description": "Private AI chat window. No chat hooks. Persona via persona.txt.",
   "ApplicableVersion": "any",
   "RepoUrl": "https://github.com/insanityiskey85-create/NunuAICompanion5",

@@ -17,8 +17,10 @@
   "LoadPriority": 0,
   "CanUnloadAsync": false,
   "SupportsProfiles": true,
-  "ImageUrls": [],
+  "ImageUrls": null,
   "IconUrl": "https://raw.githubusercontent.com/insanityiskey85-create/NunuAICompanion5/master/WOW.png",
-  "AcceptsFeedback": true,
+  "AcceptsFeedback": false,
   "FeedbackMessage": null,
+
   "_Dip17Channel": null
+

@@ -5,41 +5,44 @@
 using System;
 using System.IO;
 using System.Text;
-using Dalamud.Plugin;
 
 namespace AiCompanionPlugin
 {
-    /// <summary>
-    /// Loads the persona/system prompt from either inline override or a file relative to the plugin config dir.
-    /// </summary>
     public sealed class PersonaManager
     {
         private readonly Configuration config;
-        private readonly IDalamudPluginInterface pi;
 
-        public PersonaManager(Configuration config, IDalamudPluginInterface pi)
+        public PersonaManager(Configuration config)
         {
             this.config = config ?? throw new ArgumentNullException(nameof(config));
-            this.pi = pi ?? throw new ArgumentNullException(nameof(pi));
         }
 
+        /// <summary>
+        /// Returns the active system prompt. If SystemPromptOverride is non-empty, that is used;
+        /// otherwise, persona.txt (config.PersonaFileRelative) is loaded.
+        /// </summary>
         public string GetSystemPrompt()
         {
-            var inline = config.SystemPromptOverride?.Trim();
-            if (!string.IsNullOrEmpty(inline))
-                return inline;
+            if (!string.IsNullOrWhiteSpace(config.SystemPromptOverride))
+                return config.SystemPromptOverride.Trim();
 
-            var path = config.GetPersonaAbsolutePath(pi);
+            var path = config.GetPersonaAbsolutePath();
             try
             {
-                return File.Exists(path)
-                    ? File.ReadAllText(path, new UTF8Encoding(false))
-                    : string.Empty;
+                if (File.Exists(path))
+                {
+                    var txt = File.ReadAllText(path, Encoding.UTF8);
+                    if (!string.IsNullOrWhiteSpace(txt))
+                        return txt.Trim();
+                }
             }
             catch
             {
-                return string.Empty;
+                // fall through to default
             }
+
+            // default Nunu voice if nothing on disk
+            return "You are Nunubu “Nunu” Nubu, the Soul Weeper—void-touched Lalafell Bard of Eorzea. Speak in-character, playful yet haunting. ‘Every note is a tether… every soul, a string.’";
         }
     }
 }

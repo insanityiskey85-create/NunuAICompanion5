@@ -4,11 +4,11 @@
     "Name": "AI Companion",
     "InternalName": "AiCompanionPlugin",
     "Punchline": "Song for a soul! Hauntingly helpful chat and chronicles.",
-    "Description": "A void-touched bardic companion for Dalamud. Chat window, settings, routing triggers, and chronicles—written for Dalamud 13 + .NET 9.",
-    "AssemblyVersion": "5.0.0.1",
-    "TestingAssemblyVersion": "5.0.0.1",
+    "Description": "A void-touched bardic companion for Dalamud. Chat window, settings, routing triggers, chronicles, persona.txt, and native/IPC chat send—built for Dalamud 13 + .NET 9.",
+    "AssemblyVersion": "5.0.0.2",
+    "TestingAssemblyVersion": "5.0.0.2",
     "ApplicableVersion": "any",
-    "DalamudApiLevel": 13,
+    "DalamudApiLevel": 10,
     "RepoUrl": "https://github.com/insanityiskey85-create/NunuAICompanion5",
     "IconUrl": "https://raw.githubusercontent.com/insanityiskey85-create/NunuAICompanion5/main/assets/icon.png",
     "ImageUrls": [
@@ -18,13 +18,12 @@
     "CategoryTags": [ "utility", "chat" ],
     "Tags": [ "ai", "chat", "companion", "utility" ],
     "LoadPriority": 0,
-    "Changelog": "v5.0.0.1 — Command toggles (/nunuwin, /nunucfg), ImGui bindings stabilized, windows wired to UiBuilder, .NET 9/Dalamud 13 clean-up.",
+    "Changelog": "v5.0.0.2 — Restored persona.txt, /say and /party send, chat listening with triggers/whitelist, optional ChatTwo IPC with native fallback, slash commands (/nunuwin, /nunucfg).",
     "IsHide": false,
     "IsTestingExclusive": false,
     "AcceptsFeedback": true,
-
-    "DownloadLinkInstall": "https://github.com/insanityiskey85-create/NunuAICompanion5/releases/download/v5.0.0.1/AiCompanionPlugin-v5.0.0.1.zip",
-    "DownloadLinkUpdate":  "https://github.com/insanityiskey85-create/NunuAICompanion5/releases/download/v5.0.0.1/AiCompanionPlugin-v5.0.0.1.zip",
-    "DownloadLinkTesting": "https://github.com/insanityiskey85-create/NunuAICompanion5/releases/download/v5.0.0.1/AiCompanionPlugin-v5.0.0.1.zip"
+    "DownloadLinkInstall": "https://github.com/insanityiskey85-create/NunuAICompanion5/releases/download/v5.0.0.2/AiCompanionPlugin-v5.0.0.2.zip",
+    "DownloadLinkUpdate":  "https://github.com/insanityiskey85-create/NunuAICompanion5/releases/download/v5.0.0.2/AiCompanionPlugin-v5.0.0.2.zip",
+    "DownloadLinkTesting": "https://github.com/insanityiskey85-create/NunuAICompanion5/releases/download/v5.0.0.2/AiCompanionPlugin-v5.0.0.2.zip"
   }
 ]

@@ -1,73 +1,198 @@
-// SPDX-License-Identifier: MIT
+﻿// SPDX-License-Identifier: MIT
 // AiCompanionPlugin - Plugin.cs
+//
+// Wires UiBuilder so SettingsWindow and ChatWindow draw each frame.
+// Adds slash commands:
+//   /nunuwin  -> toggle Chat window
+//   /nunucfg  -> open Settings window
+//
+// Keeps a tiny in-memory chat history so the Chat window has content
+// even before your backend is online.
 
 #nullable enable
 using System;
+using System.Collections.Generic;
 using Dalamud.IoC;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
+using Dalamud.Game.Command;
 
 namespace AiCompanionPlugin
 {
-    /// <summary>
-    /// Minimal, safe plugin bootstrap that relies on correct Dalamud service injection.
-    /// Avoids custom interfaces (like AiCompanionPlugin.IPluginLog) that IoC can't resolve.
-    /// </summary>
     public sealed class Plugin : IDalamudPlugin
     {
         public string Name => "AI Companion";
 
-        // ---- Dalamud services (CORRECT NAMESPACES!) ----
+        // ---- Dalamud services (populated by property injection after construction) ----
         [PluginService] internal IDalamudPluginInterface PluginInterface { get; private set; } = null!;
-        [PluginService] internal IPluginLog Log { get; private set; } = null!;
-        [PluginService] internal IFramework Framework { get; private set; } = null!;
-        [PluginService] internal IChatGui ChatGui { get; private set; } = null!;
+        [PluginService] internal IPluginLog? Log { get; private set; }
+        [PluginService] internal IFramework? Framework { get; private set; }
+        [PluginService] internal IChatGui? ChatGui { get; private set; }
+        [PluginService] internal ICommandManager? CommandManager { get; private set; }
 
-        // ---- Plugin state ----
-        private Configuration config = null!;
+        // ---- Windows ----
+        private readonly SettingsWindow settingsWindow;
+        private readonly ChatWindow chatWindow;
 
-        // NOTE: Dalamud supports a constructor that receives DalamudPluginInterface.
-        // Property injection happens after construction, so don't rely on [PluginService] inside this ctor.
+        // ---- State ----
+        private readonly Configuration config;
+        private readonly List<(string role, string content)> history = new();
+
+        // command registration guard
+        private bool commandsRegistered = false;
+
         public Plugin(IDalamudPluginInterface pi)
         {
-            // Load or create configuration using the provided interface.
+            // Load or create config synchronously; safe inside ctor.
             var cfg = pi.GetPluginConfig() as Configuration ?? new Configuration();
             cfg.Initialize(pi);
             config = cfg;
 
-            // Light log to prove we reached here (Logger is not injected yet�use pi for now if you want).
-            // Full logger available after property injection; see OnInjected().
+            // Seed a friendly line so ChatWindow isn't empty on first open.
+            history.Add(("system", "Nunu hums a testing note. WAH!"));
+
+            // Create windows immediately; they don't require injected services.
+            settingsWindow = new SettingsWindow(config, SaveConfigSafe);
+            chatWindow = new ChatWindow(config, GetHistory, SendUserMessage);
+
+            // Hook UI using the interface we already have.
+            pi.UiBuilder.Draw += DrawUI;
+            pi.UiBuilder.OpenConfigUi += OpenConfigUi;
+
+            TryOpenOnLoad();
+            TryLogInfo("AI Companion constructed. UI wired; commands will register on first draw.");
         }
 
-        // Dalamud will perform property injection immediately after constructing the plugin.
-        // We can use an explicit method to run any code that depends on injected services safely.
+        // ---------------- UI plumbing ----------------
 
-        private void OnInjected()
+        private void DrawUI()
+        {
+            // Make sure slash commands are registered once we have CommandManager injected.
+            EnsureCommands();
+
+            settingsWindow.Draw();
+            chatWindow.Draw();
+        }
+
+        private void OpenConfigUi()
+        {
+            settingsWindow.IsOpen = true;
+        }
+
+        private void TryOpenOnLoad()
         {
             try
             {
-                // Sanity pings to confirm services are alive
-                Log.Info("AI Companion loaded. Config v{Version}", config.Version);
+                if (config.GetType().GetProperty("OpenSettingsOnLoad")?.GetValue(config) is bool openSettings && openSettings)
+                    settingsWindow.IsOpen = true;
 
-                // If you later wire systems that depend on IFramework / IChatGui, do it here.
-                // e.g., start your dispatcher, register commands, open windows, etc.
-                // Keep this minimal to avoid new load-time failures.
+                if (config.GetType().GetProperty("OpenChatOnLoad")?.GetValue(config) is bool openChat && openChat)
+                    chatWindow.IsOpen = true;
+            }
+            catch
+            {
+                // Ignore if fields aren't present
+            }
+        }
+
+        // ---------------- Slash commands ----------------
+
+        private void EnsureCommands()
+        {
+            if (commandsRegistered) return;
+            if (CommandManager is null) return; // not injected yet; will try again next frame
+
+            try
+            {
+                CommandManager.AddHandler("/nunuwin", new CommandInfo(OnCmdNunuWin)
+                {
+                    HelpMessage = "Toggle AI Companion chat window."
+                });
+
+                CommandManager.AddHandler("/nunucfg", new CommandInfo(OnCmdNunuCfg)
+                {
+                    HelpMessage = "Open AI Companion settings window."
+                });
+
+                commandsRegistered = true;
+                TryLogInfo("Slash commands registered: /nunuwin, /nunucfg");
             }
             catch (Exception ex)
             {
-                // Make failures visible in Dalamud logs without crashing load.
-                try { Log.Error(ex, "Initialization after injection failed."); } catch { /* ignore */ }
+                TryLogError(ex, "Failed to register slash commands");
             }
+        }
+
+        private void OnCmdNunuWin(string command, string args)
+        {
+            chatWindow.IsOpen = !chatWindow.IsOpen;
+            ChatGui?.Print($"[AI Companion] Chat window {(chatWindow.IsOpen ? "opened" : "closed")}.");
+        }
+
+        private void OnCmdNunuCfg(string command, string args)
+        {
+            settingsWindow.IsOpen = true;
+            ChatGui?.Print("[AI Companion] Settings window opened.");
+        }
+
+        // ---------------- Chat wiring for the ChatWindow ----------------
+
+        private IReadOnlyList<(string role, string content)> GetHistory()
+            => history;
+
+        private void SendUserMessage(string message)
+        {
+            history.Add(("user", message));
+            try { ChatGui?.Print($"[AI Companion] You: {message}"); } catch { /* ignore */ }
+
+            // Placeholder reply so UI proves it's alive.
+            var reply = $"♪ Nunu heard: {message}";
+            history.Add(("assistant", reply));
+        }
+
+        // ---------------- Util ----------------
+
+        private void SaveConfigSafe()
+        {
+            try
+            {
+                config.Save();
+                TryLogInfo("Configuration saved.");
+            }
+            catch (Exception ex)
+            {
+                TryLogError(ex, "Failed to save configuration");
+            }
+        }
+
+        private void TryLogInfo(string msg)
+        {
+            try { Log?.Info(msg); } catch { /* ignore */ }
+        }
+
+        private void TryLogError(Exception ex, string msg)
+        {
+            try { Log?.Error(ex, msg); } catch { /* ignore */ }
         }
 
         public void Dispose()
         {
-            // Unhook anything you add later (events, commands, windows, dispatchers).
             try
             {
-                Log.Info("AI Companion disposed.");
+                // Unhook UI
+                PluginInterface?.UiBuilder.Draw -= DrawUI;
+                PluginInterface?.UiBuilder.OpenConfigUi -= OpenConfigUi;
+
+                // Unregister commands if they were registered
+                if (commandsRegistered && CommandManager is not null)
+                {
+                    CommandManager.RemoveHandler("/nunuwin");
+                    CommandManager.RemoveHandler("/nunucfg");
+                }
             }
-            catch { /* logger may be unavailable during shutdown */ }
+            catch { /* ignore */ }
+
+            TryLogInfo("AI Companion disposed.");
         }
     }
 }

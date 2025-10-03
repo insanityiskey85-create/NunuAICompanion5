@@ -18,6 +18,8 @@ namespace AiCompanionPlugin
         private readonly ICallGateSubscriber<string, bool>? sendSay;      // optional "ChatTwo.SendSay"
         private readonly ICallGateSubscriber<string, bool>? sendParty;    // optional "ChatTwo.SendParty"
 
+        public bool IsAvailable { get; internal set; }
+
         public ChatTwoBridge(IDalamudPluginInterface pi, IPluginLog? log)
         {
             this.log = log;
@@ -54,5 +56,7 @@ namespace AiCompanionPlugin
             catch (Exception ex) { try { log?.Warning(ex, "ChatTwo IPC /p failed"); } catch { } }
             return false;
         }
+
+        internal bool CanSend(string v) => throw new NotImplementedException();
     }
 }

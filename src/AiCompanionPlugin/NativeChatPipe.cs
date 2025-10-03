@@ -24,6 +24,11 @@ namespace AiCompanionPlugin
             this.log = log;
         }
 
+        public NativeChatPipe(Configuration config, IChatGui chat)
+        {
+            this.config = config;
+        }
+
         public bool TrySendSay(string message)
             => TrySendChatCommand("/say ", message);
 

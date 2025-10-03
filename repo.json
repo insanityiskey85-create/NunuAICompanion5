@@ -1,31 +1,24 @@
-[
-  {
-    "Author": "Nunubu Nubu",
-    "Name": "AI Companion",
-    "InternalName": "AiCompanionPlugin",
-    "Punchline": "Song for a soul! Hauntingly helpful chat and chronicles.",
-    "Description": "A bardic AI companion that chats, routes messages, and scribes chronicles—woven for Dalamud.",
-    "AssemblyVersion": "1.0.3.1",
-    "TestingAssemblyVersion": "1.0.3.1",
-    "ApplicableVersion": "any",
-    "DalamudApiLevel": 13,
-    "RepoUrl": "https://github.com/your-org/AiCompanionPlugin5",
-    "IconUrl": "https://raw.githubusercontent.com/your-org/AiCompanionPlugin5/main/assets/icon.png",
-    "ImageUrls": [],
-    "CategoryTags": [ "utility", "chat" ],
-    "Tags": [ "ai", "chat", "companion", "utility" ],
-    "LoadPriority": 0,
-    "Changelog": "v1.0.3.1 — bug fixes, IPC hardening, safer chat pipeline, and UI cleanups.",
-    "IsHide": false,
-    "IsTestingExclusive": false,
-    "AcceptsFeedback": true,
-
-    "DownloadLinkInstall": "https://github.com/your-org/AiCompanionPlugin5/releases/download/v1.0.3.1/AiCompanionPlugin_v1.0.3.1.zip",
-    "DownloadLinkUpdate":  "https://github.com/your-org/AiCompanionPlugin5/releases/download/v1.0.3.1/AiCompanionPlugin_v1.0.3.1.zip",
-    "DownloadLinkTesting": "https://github.com/your-org/AiCompanionPlugin5/releases/download/v1.0.3.1/AiCompanionPlugin_v1.0.3.1.zip"
-  }
-]
-
-
-
-
+"InternalName": "AiCompanionPlugin",
+  "AssemblyVersion": "1.0.3.1",
+  "TestingAssemblyVersion": "1.0.3.1",
+  "IsTestingExclusive": false,
+  "RepoUrl": "https://github.com/insanityiskey85-create/NunuAICompanion5",
+  "ApplicableVersion": "any",
+  "MinimumDalamudVersion": null,
+  "DalamudApiLevel": 13,
+  "TestingDalamudApiLevel": null,
+  "DownloadCount": 0,
+  "LastUpdate": 0,
+  "DownloadLinkInstall": "https://github.com/insanityiskey85-create/NunuAICompanion5/releases/download/v1.0.3.1/AiCompanionPlugin_v1.0.3.1.zip",
+  "DownloadLinkUpdate": "https://github.com/insanityiskey85-create/NunuAICompanion5/releases/download/v1.0.3.1/AiCompanionPlugin_v1.0.3.1.zip",
+  "DownloadLinkTesting": "https://github.com/insanityiskey85-create/NunuAICompanion5/releases/download/v1.0.3.1/AiCompanionPlugin_v1.0.3.1.zip",
+  "LoadRequiredState": 0,
+  "LoadSync": false,
+  "LoadPriority": 0,
+  "CanUnloadAsync": false,
+  "SupportsProfiles": true,
+  "ImageUrls": [],
+  "IconUrl": "https://raw.githubusercontent.com/insanityiskey85-create/NunuAICompanion5/master/WOW.png",
+  "AcceptsFeedback": true,
+  "FeedbackMessage": null,
+  "_Dip17Channel": null

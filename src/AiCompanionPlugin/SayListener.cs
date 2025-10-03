@@ -69,7 +69,7 @@ public sealed class SayListener : IDisposable
             if (string.IsNullOrWhiteSpace(prompt)) return;
             if (!config.SayAutoReply) return;
 
-            _ = RespondStreamAsync(prompt, senderName);
+            _ = RespondStreamAsync(prompt, senderName, GetLog());
         }
         catch (Exception ex)
         {
@@ -77,7 +77,9 @@ public sealed class SayListener : IDisposable
         }
     }
 
-    private async Task RespondStreamAsync(string prompt, string caller)
+    private IPluginLog GetLog() => log;
+
+    private async Task RespondStreamAsync(string prompt, string caller, IPluginLog log)
     {
         try
         {
@@ -106,7 +108,9 @@ public sealed class SayListener : IDisposable
         catch (OperationCanceledException) { }
         catch (Exception ex)
         {
+#pragma warning disable CA1416 // Validate platform compatibility
             log.Error(ex, "SayListener RespondStreamAsync error");
+#pragma warning restore CA1416 // Validate platform compatibility
         }
     }
 
@@ -118,8 +122,7 @@ public sealed class SayListener : IDisposable
         return string.Join(' ', n.Split(separator, StringSplitOptions.RemoveEmptyEntries));
     }
 
-    public void Dispose()
-    {
-        chat.ChatMessage -= OnChatMessage;
-    }
+#pragma warning disable CA1416 // Validate platform compatibility
+    public void Dispose() => chat.ChatMessage -= OnChatMessage;
+#pragma warning restore CA1416 // Validate platform compatibility
 }

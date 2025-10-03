@@ -5,8 +5,8 @@
     "InternalName": "AiCompanionPlugin",
     "Punchline": "Song for a soul! Hauntingly helpful chat and chronicles.",
     "Description": "A bardic AI companion that chats, routes messages, and scribes chronicles—woven for Dalamud.",
-    "AssemblyVersion": "1.0.3.2",
-    "TestingAssemblyVersion": "1.0.3.2",
+    "AssemblyVersion": "1.0.3.1",
+    "TestingAssemblyVersion": "1.0.3.1",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 13,
     "RepoUrl": "https://github.com/your-org/AiCompanionPlugin5",
@@ -15,14 +15,14 @@
     "CategoryTags": [ "utility", "chat" ],
     "Tags": [ "ai", "chat", "companion", "utility" ],
     "LoadPriority": 0,
-    "Changelog": "v1.0.3.2 — bug fixes, IPC hardening, safer chat pipeline, and UI cleanups.",
+    "Changelog": "v1.0.3.1 — bug fixes, IPC hardening, safer chat pipeline, and UI cleanups.",
     "IsHide": false,
     "IsTestingExclusive": false,
     "AcceptsFeedback": true,
 
-    "DownloadLinkInstall": "https://github.com/your-org/AiCompanionPlugin5/releases/download/v1.0.3.2/AiCompanionPlugin_v1.0.3.2.zip",
-    "DownloadLinkUpdate":  "https://github.com/your-org/AiCompanionPlugin5/releases/download/v1.0.3.2/AiCompanionPlugin_v1.0.3.2.zip",
-    "DownloadLinkTesting": "https://github.com/your-org/AiCompanionPlugin5/releases/download/v1.0.3.2/AiCompanionPlugin_v1.0.3.2.zip"
+    "DownloadLinkInstall": "https://github.com/your-org/AiCompanionPlugin5/releases/download/v1.0.3.1/AiCompanionPlugin_v1.0.3.1.zip",
+    "DownloadLinkUpdate":  "https://github.com/your-org/AiCompanionPlugin5/releases/download/v1.0.3.1/AiCompanionPlugin_v1.0.3.1.zip",
+    "DownloadLinkTesting": "https://github.com/your-org/AiCompanionPlugin5/releases/download/v1.0.3.1/AiCompanionPlugin_v1.0.3.1.zip"
   }
 ]
 

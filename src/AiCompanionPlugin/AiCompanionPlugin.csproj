@@ -6,22 +6,26 @@
 		<ImplicitUsings>enable</ImplicitUsings>
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 
+		<!-- Enable native path only when we reference the DLL -->
+		<DefineConstants>TRACE;HAS_CLIENTSTRUCTS</DefineConstants>
+
 		<OutputType>Library</OutputType>
-		<Version>1.0.0</Version>
+		<Description>Isolated AI chat companion for Dalamud.</Description>
 		<DalamudApiLevel>13</DalamudApiLevel>
 		<IsPackable>true</IsPackable>
 	</PropertyGroup>
 
 	<ItemGroup>
-		<!-- Dalamud packager as you already had -->
 		<PackageReference Include="DalamudPackager" Version="2.1.10" PrivateAssets="all" />
-		<!-- **New**: FFXIV client structs for ExecuteCommandInner / Utf8String / modules -->
-		<PackageReference Include="FFXIVClientStructs" Version="9.*" />
 	</ItemGroup>
-	
-	<PropertyGroup>
-		<DefineConstants>$(DefineConstants);HAS_CLIENTSTRUCTS</DefineConstants>
-	</PropertyGroup>
+
+	<!-- Local DLL reference (no NuGet). Do NOT copy to output; Dalamud loads us in-process. -->
+	<ItemGroup>
+		<Reference Include="FFXIVClientStructs">
+			<HintPath>Libs\FFXIVClientStructs.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+	</ItemGroup>
 
 	<Target Name="CopyDalamudRefs" BeforeTargets="Build">
 		<PropertyGroup>
@@ -29,5 +33,6 @@
 		</PropertyGroup>
 	</Target>
 
-	<Import Project="$(DalamudLibPath)\DalamudPackager.targets" Condition="Exists('$(DalamudLibPath)\DalamudPackager.targets')" />
+	<Import Project="$(DalamudLibPath)\DalamudPackager.targets"
+			Condition="Exists('$(DalamudLibPath)\DalamudPackager.targets')" />
 </Project>

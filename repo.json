@@ -9,12 +9,9 @@
     "TestingAssemblyVersion": "1.0.3.2",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 10,
-    "RepoUrl": "https://github.com/your-org/AiCompanionPlugin",
+    "RepoUrl": "https://github.com/your-org/AiCompanionPlugin5",
     "IconUrl": "https://raw.githubusercontent.com/your-org/AiCompanionPlugin/main/assets/icon.png",
-    "ImageUrls": [
-      "https://raw.githubusercontent.com/your-org/AiCompanionPlugin/main/assets/preview-1.png",
-      "https://raw.githubusercontent.com/your-org/AiCompanionPlugin/main/assets/preview-2.png"
-    ],
+    "ImageUrls": [],
     "CategoryTags": [ "utility", "chat" ],
     "Tags": [ "ai", "chat", "companion", "utility" ],
     "LoadPriority": 0,
@@ -23,9 +20,9 @@
     "IsTestingExclusive": false,
     "AcceptsFeedback": true,
 
-    "DownloadLinkInstall": "https://github.com/your-org/AiCompanionPlugin/releases/download/v1.0.3.1/AiCompanionPlugin_v1.0.3.2.zip",
-    "DownloadLinkUpdate":  "https://github.com/your-org/AiCompanionPlugin/releases/download/v1.0.3.1/AiCompanionPlugin_v1.0.3.2.zip",
-    "DownloadLinkTesting": "https://github.com/your-org/AiCompanionPlugin/releases/download/v1.0.3.1/AiCompanionPlugin_v1.0.3.2.zip"
+    "DownloadLinkInstall": "https://github.com/your-org/AiCompanionPlugin5/releases/download/v1.0.3.1/AiCompanionPlugin_v1.0.3.2.zip",
+    "DownloadLinkUpdate":  "https://github.com/your-org/AiCompanionPlugin5/releases/download/v1.0.3.1/AiCompanionPlugin_v1.0.3.2.zip",
+    "DownloadLinkTesting": "https://github.com/your-org/AiCompanionPlugin5/releases/download/v1.0.3.1/AiCompanionPlugin_v1.0.3.2.zip"
   }
 ]
 

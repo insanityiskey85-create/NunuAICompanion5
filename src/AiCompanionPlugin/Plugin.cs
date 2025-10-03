@@ -4,6 +4,7 @@ using Dalamud.Interface.Windowing;
 using Dalamud.IoC;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
+using Dalamud.Game.Text;
 
 namespace AiCompanionPlugin;
 
@@ -17,63 +18,98 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IPluginLog PluginLog { get; private set; } = null!;
     [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
 
-    private readonly WindowSystem windowSystem = new("AI Companion");
+    private static readonly WindowSystem WindowSystem = new("AI Companion");
+
+    private static SettingsWindow? settingsWindow;
+    private static ChatWindow? chatWindow;
+
     private readonly Configuration config;
     private readonly PersonaManager personaManager;
     private readonly AiClient aiClient;
     private readonly ChatPipe pipe;
-    private readonly ChatWindow chatWindow;
-    private readonly SettingsWindow settingsWindow;
     private readonly AutoRouteListener autoRoute;
-    private readonly PartyListener partyListener;
     private readonly SayListener sayListener;
+    private readonly PartyListener partyListener;
 
     private const string Command = "/aic";
 
     public Plugin()
     {
-        config = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
-        config.Initialize(PluginInterface);
+        // Load config
+        this.config = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
+        this.config.Initialize(PluginInterface);
 
-        personaManager = new PersonaManager(PluginInterface, PluginLog, config);
-        aiClient = new AiClient(PluginLog, config, personaManager);
-        pipe = new ChatPipe(CommandManager, PluginLog, config, Framework, ChatGui, PluginInterface);
+        // Persona manager
+        this.personaManager = new PersonaManager(PluginInterface, PluginLog, config);
 
+        // AI client
+        this.aiClient = new AiClient(PluginLog, config, personaManager);
+
+        // Outbound chat pipe (rate-limited queue)
+        this.pipe = new ChatPipe(PluginInterface, CommandManager, Framework, ChatGui, PluginLog);
+
+        // Windows
         chatWindow = new ChatWindow(PluginLog, aiClient, config, personaManager, pipe);
         settingsWindow = new SettingsWindow(config, personaManager);
 
-        windowSystem.AddWindow(chatWindow);
-        windowSystem.AddWindow(settingsWindow);
+        WindowSystem.AddWindow(chatWindow);
+        WindowSystem.AddWindow(settingsWindow);
 
-        autoRoute = new AutoRouteListener(PluginLog, ChatGui, config);
-        partyListener = new PartyListener(PluginLog, ChatGui, config, aiClient, pipe);
-        sayListener = new SayListener(PluginLog, ChatGui, config, aiClient, pipe);
-
+        // UI hooks
         PluginInterface.UiBuilder.Draw += DrawUi;
         PluginInterface.UiBuilder.OpenConfigUi += ToggleSettings;
 
-        CommandManager.AddHandler(Command, new CommandInfo(OnCommand) { HelpMessage = "Open AI Companion chat window" });
+        // Listeners
+        this.autoRoute = new AutoRouteListener(PluginLog, ChatGui, config);
+        this.sayListener = new SayListener(PluginLog, ChatGui, config);
+        this.partyListener = new PartyListener(PluginLog, ChatGui, config);
 
-        PluginLog.Info("[AI Companion] Initialized with channel bridge.");
+        // Command
+        CommandManager.AddHandler(Command, new CommandInfo(OnCommand)
+        {
+            HelpMessage = "Open AI Companion chat window"
+        });
+
+        PluginLog.Information("[AI Companion] Initialized with channel bridge.");
     }
 
-    private void OnCommand(string command, string args) => chatWindow.IsOpen = true;
-    private void ToggleSettings() => settingsWindow.IsOpen = true;
-    private void DrawUi() => windowSystem.Draw();
+    private void OnCommand(string command, string args) => OpenChatWindow();
+
+    private static void OpenChatWindow()
+    {
+        if (chatWindow != null) chatWindow.IsOpen = true;
+    }
+
+    private static void ToggleSettings() => OpenSettingsWindow();
+
+    public static void OpenSettingsWindow()
+    {
+        if (settingsWindow != null) settingsWindow.IsOpen = true;
+    }
+
+    private void DrawUi() => WindowSystem.Draw();
 
     public void Dispose()
     {
         CommandManager.RemoveHandler(Command);
         PluginInterface.UiBuilder.Draw -= DrawUi;
         PluginInterface.UiBuilder.OpenConfigUi -= ToggleSettings;
+        WindowSystem.RemoveAllWindows();
 
         autoRoute.Dispose();
-        partyListener.Dispose();
         sayListener.Dispose();
-
-        windowSystem.RemoveAllWindows();
+        partyListener.Dispose();
+        pipe.Dispose();
         aiClient.Dispose();
         personaManager.Dispose();
-        pipe.Dispose();
+    }
+
+    /// <summary>
+    /// Called by AutoRouteListener when a trigger is detected in Party/Say.
+    /// Surfaces the message into the AI Companion window (and can kick off replies).
+    /// </summary>
+    public static void RouteIncoming(XivChatType type, string sender, string text)
+    {
+        chatWindow?.OnRoutedMessage(type, sender, text);
     }
 }

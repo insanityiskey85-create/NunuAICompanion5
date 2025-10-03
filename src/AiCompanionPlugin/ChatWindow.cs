@@ -5,7 +5,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin.Services;
-using Dalamud.Bindings.ImGui; // use Dalamud’s ImGui
+using Dalamud.Bindings.ImGui;
+using Dalamud.Game.Text;
 
 namespace AiCompanionPlugin;
 
@@ -23,20 +24,26 @@ public sealed class ChatWindow : Window
     private CancellationTokenSource? cts;
 
     public ChatWindow(IPluginLog log, AiClient client, Configuration config, PersonaManager persona, ChatPipe pipe)
-        : base("AI Companion", ImGuiWindowFlags.None)
+        : base("AI Companion — Nunu")
     {
-        this.log = log; this.client = client; this.config = config; this.persona = persona; this.pipe = pipe;
-        SizeConstraints = new WindowSizeConstraints
-        {
-            MinimumSize = new Vector2(540, 420),
-            MaximumSize = new Vector2(float.MaxValue, float.MaxValue)
-        };
+        this.log = log;
+        this.client = client;
+        this.config = config;
+        this.persona = persona;
+        this.pipe = pipe;
+        this.IsOpen = false;
+    }
+
+    public void OnRoutedMessage(XivChatType fromChannel, string fromName, string content)
+    {
+        var prefix = fromChannel == XivChatType.Party ? "[P]" : "[S]";
+        history.Add(new ChatMessage("user", $"{prefix} {fromName}: {content}"));
+        // You could auto-start a reply here if you want.
     }
 
     public override void Draw()
     {
-        // transcript
-        ImGui.BeginChild("chat-scroll", new Vector2(0, -105), true);
+        ImGui.BeginChild("chat-scroll", new Vector2(0, -95), true);
         foreach (var m in history)
         {
             ImGui.PushTextWrapPos();
@@ -53,27 +60,38 @@ public sealed class ChatWindow : Window
         }
         ImGui.EndChild();
 
-        // input & controls
-        ImGui.InputTextMultiline("##input", ref input, 8000, new Vector2(-140, 90));
+        ImGui.InputTextMultiline("##input", ref input, 8000, new Vector2(-120, 80));
         ImGui.SameLine();
-        if (ImGui.BeginChild("controls", new Vector2(130, 90)))
+        if (ImGui.BeginChild("controls", new Vector2(110, 80)))
         {
             var sending = cts != null;
             var sendDisabled = sending || string.IsNullOrWhiteSpace(input);
-
-            if (ImGui.Button(sending ? "Sending…" : "Send", new Vector2(120, 34)) && !sendDisabled)
+            if (ImGui.Button(sending ? "Sending" : "Send", new Vector2(100, 36)) && !sendDisabled)
+            {
                 _ = SendAsync();
+            }
 
-            if (sending)
+            if (ImGui.Button("To /say", new Vector2(100, 36)))
             {
-                if (ImGui.Button("Cancel", new Vector2(120, 34)))
-                    cts?.Cancel();
+                var text = responseBuffer.Length > 0 ? responseBuffer.ToString() : (history.Count > 0 ? history[^1].Content : string.Empty);
+                if (!string.IsNullOrWhiteSpace(text)) pipe.EnqueueSay(text);
             }
-            else
+
+            if (ImGui.Button("To /party", new Vector2(100, 36)))
             {
-                if (ImGui.Button("Settings", new Vector2(120, 34)))
-                    Plugin.PluginInterface.UiBuilder.OpenConfigUi();
+                var text = responseBuffer.Length > 0 ? responseBuffer.ToString() : (history.Count > 0 ? history[^1].Content : string.Empty);
+                if (!string.IsNullOrWhiteSpace(text)) pipe.EnqueueParty(text);
             }
+
+            ImGui.EndChild();
+        }
+
+        if (ImGui.BeginChild("footer", new Vector2(0, 0)))
+        {
+            ImGui.TextDisabled($"Model: {config.Model} | Streaming: {config.StreamResponses}");
+            if (ImGui.Button("Settings")) Plugin.OpenSettingsWindow();   // ← fixed (no event invoke)
+            ImGui.SameLine();
+            ImGui.TextDisabled("Window is isolated unless Party/Say routing is used.");
             ImGui.EndChild();
         }
     }
@@ -105,11 +123,15 @@ public sealed class ChatWindow : Window
                 history.Add(new ChatMessage("assistant", full));
             }
         }
-        catch (System.OperationCanceledException) { log.Info("AI request canceled."); }
+        catch (System.OperationCanceledException)
+        {
+            log.Information("AI request canceled by user.");
+        }
         catch (System.Exception ex)
         {
             responseBuffer.Clear();
-            history.Add(new ChatMessage("assistant", $"Error: {ex.Message}"));
+            var msg = $"Error: {ex.Message}";
+            history.Add(new ChatMessage("assistant", msg));
             log.Error(ex, "AI request failed");
         }
         finally

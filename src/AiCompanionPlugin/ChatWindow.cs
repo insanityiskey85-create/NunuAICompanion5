@@ -34,12 +34,17 @@ public sealed class ChatWindow : Window
         ChatPipe pipe)
         : base("AI Companion", ImGuiWindowFlags.None)
     {
-        this.log = log; this.client = client; this.config = config; this.persona = persona;
-        this.memory = memory; this.chronicle = chronicle; this.pipe = pipe;
+        this.log = log;
+        this.client = client;
+        this.config = config;
+        this.persona = persona;
+        this.memory = memory;
+        this.chronicle = chronicle;
+        this.pipe = pipe;
 
         SizeConstraints = new WindowSizeConstraints
         {
-            MinimumSize = new Vector2(480, 380),
+            MinimumSize = new Vector2(520, 420),
             MaximumSize = new Vector2(float.MaxValue, float.MaxValue)
         };
     }
@@ -49,40 +54,52 @@ public sealed class ChatWindow : Window
         try
         {
             // Transcript
-            ImGui.BeginChild("chat-scroll", new Vector2(0, -95), true);
-            foreach (var m in history)
+            ImGui.BeginChild("chat-scroll", new Vector2(0, -100), true);
+            for (int i = 0; i < history.Count; i++)
             {
+                var m = history[i];
                 ImGui.PushTextWrapPos();
-                ImGui.TextUnformatted($"{(m.Role == "assistant" ? (config.AiDisplayName ?? "AI Nunu") : "You")}: {m.Content}");
+
+                var who = m.Role == "assistant"
+                    ? (string.IsNullOrWhiteSpace(config.AiDisplayName) ? "AI Nunu" : config.AiDisplayName)
+                    : "You";
+
+                ImGui.TextUnformatted($"{who}: {m.Content}");
                 ImGui.PopTextWrapPos();
-                ImGui.Separator();
+                if (i < history.Count - 1) ImGui.Separator();
             }
+
             if (responseBuffer.Length > 0)
             {
-                ImGui.PushTextWrapPos();
-                ImGui.TextUnformatted($"{config.AiDisplayName ?? "AI Nunu"} (typing): {responseBuffer}");
-                ImGui.PopTextWrapPos();
                 ImGui.Separator();
+                ImGui.PushTextWrapPos();
+                var typingName = string.IsNullOrWhiteSpace(config.AiDisplayName) ? "AI Nunu" : config.AiDisplayName;
+                ImGui.TextUnformatted($"{typingName} (typing): {responseBuffer}");
+                ImGui.PopTextWrapPos();
             }
             ImGui.EndChild();
 
             // Input & controls
-            ImGui.InputTextMultiline("##input", ref input, 8000, new Vector2(-120, 80));
+            ImGui.InputTextMultiline("##input", ref input, 8000, new Vector2(-130, 90));
             ImGui.SameLine();
-            if (ImGui.BeginChild("controls", new Vector2(110, 80)))
+            if (ImGui.BeginChild("controls", new Vector2(120, 90)))
             {
                 var sending = cts != null;
-                var sendDisabled = sending || string.IsNullOrWhiteSpace(input);
-                if (ImGui.Button(sending ? "Sending" : "Send", new Vector2(100, 36)) && !sendDisabled)
+                var canSend = !sending && !string.IsNullOrWhiteSpace(input);
+
+                if (ImGui.Button(sending ? "Sending" : "Send", new Vector2(110, 36)) && canSend)
+                {
                     _ = SendAsync();
+                }
 
                 if (sending)
                 {
-                    if (ImGui.Button("Cancel", new Vector2(100, 36))) cts?.Cancel();
+                    if (ImGui.Button("Cancel", new Vector2(110, 36)))
+                        cts?.Cancel();
                 }
                 else
                 {
-                    if (ImGui.Button("Clear", new Vector2(100, 36)))
+                    if (ImGui.Button("Clear", new Vector2(110, 36)))
                     {
                         history.Clear();
                         responseBuffer.Clear();
@@ -94,12 +111,13 @@ public sealed class ChatWindow : Window
             // Footer
             if (ImGui.BeginChild("footer", new Vector2(0, 0)))
             {
-                ImGui.TextDisabled($"Model: {config.Model} | Streaming: {config.StreamResponses} | Persona: {(string.IsNullOrWhiteSpace(config.SystemPromptOverride) ? "(default)" : "(custom)")}");
+                var model = string.IsNullOrWhiteSpace(config.Model) ? "(unset)" : config.Model;
+                var personaFlag = string.IsNullOrWhiteSpace(config.SystemPromptOverride) ? "(default persona)" : "(custom persona)";
+                ImGui.TextDisabled($"Model: {model} | Streaming: {config.StreamResponses} | {personaFlag}");
                 ImGui.SameLine();
-                if (ImGui.Button("Settings"))
-                    Plugin.OpenSettingsWindow();
+                if (ImGui.Button("Settings")) Plugin.OpenSettingsWindow();
                 ImGui.SameLine();
-                ImGui.TextDisabled("Isolated window.");
+                ImGui.TextDisabled("This chat is isolated.");
                 ImGui.EndChild();
             }
         }
@@ -115,6 +133,7 @@ public sealed class ChatWindow : Window
         var text = input.Trim();
         if (string.IsNullOrWhiteSpace(text)) return;
 
+        // push user message
         history.Add(new ChatMessage("user", text));
         input = string.Empty;
         responseBuffer.Clear();
@@ -128,14 +147,30 @@ public sealed class ChatWindow : Window
                 {
                     responseBuffer.Append(token);
                 }
+
+                // finalize assistant message
                 var full = responseBuffer.ToString();
                 history.Add(new ChatMessage("assistant", full));
                 responseBuffer.Clear();
+
+                // memory append
+                if (config.EnableMemory)
+                {
+                    var aiNm = string.IsNullOrWhiteSpace(config.AiDisplayName) ? "AI Nunu" : config.AiDisplayName;
+                    var userText = history.Count >= 2 ? history[^2].Content : text;
+                    memory.AppendTurn("You", userText, aiNm, full);
+                }
             }
             else
             {
                 var full = await client.ChatOnceAsync(history, string.Empty, cts.Token);
                 history.Add(new ChatMessage("assistant", full));
+
+                if (config.EnableMemory)
+                {
+                    var aiNm = string.IsNullOrWhiteSpace(config.AiDisplayName) ? "AI Nunu" : config.AiDisplayName;
+                    memory.AppendTurn("You", text, aiNm, full);
+                }
             }
         }
         catch (System.OperationCanceledException)

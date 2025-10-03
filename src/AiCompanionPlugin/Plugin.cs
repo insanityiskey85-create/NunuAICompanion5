@@ -1,6 +1,4 @@
 using System;
-using System.Threading;
-using System.Threading.Tasks;
 using Dalamud.Game.Command;
 using Dalamud.Interface.Windowing;
 using Dalamud.IoC;
@@ -13,6 +11,7 @@ public sealed class Plugin : IDalamudPlugin
 {
     public string Name => "AI Companion";
 
+    // Dalamud services
     [PluginService] internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
     [PluginService] internal static ICommandManager CommandManager { get; private set; } = null!;
     [PluginService] internal static IFramework Framework { get; private set; } = null!;
@@ -21,6 +20,7 @@ public sealed class Plugin : IDalamudPlugin
 
     private static Plugin? Instance;
 
+    // Core
     private readonly WindowSystem windowSystem = new("AI Companion");
     private readonly Configuration config;
     private readonly PersonaManager personaManager;
@@ -30,42 +30,49 @@ public sealed class Plugin : IDalamudPlugin
     private readonly ChatPipe chatPipe;
     private readonly AutoRouteListener autoListener;
 
+    // Windows
     private readonly ChatWindow chatWindow;
     private readonly SettingsWindow settingsWindow;
     private readonly ChronicleWindow chronicleWindow;
 
-    private const string CommandChat  = "/aic";
+    // Commands
+    private const string CommandChat = "/aic";
     private const string CommandChron = "/aiclog";
 
     public Plugin()
     {
         Instance = this;
 
+        // Load / init config
         config = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
         config.Initialize(PluginInterface);
 
-        personaManager   = new PersonaManager(PluginInterface, PluginLog, config);
-        memoryManager    = new MemoryManager(PluginInterface, PluginLog, config);
+        // Managers & services
+        personaManager = new PersonaManager(PluginInterface, PluginLog, config);
+        memoryManager = new MemoryManager(PluginInterface, PluginLog, config);
         chronicleManager = new ChronicleManager(PluginInterface, PluginLog, config);
-        aiClient         = new AiClient(PluginLog, config, personaManager);
-        chatPipe         = new ChatPipe(CommandManager, PluginLog, config, Framework, ChatGui);
-        autoListener     = new AutoRouteListener(ChatGui, PluginLog, config, aiClient, chatPipe);
+        aiClient = new AiClient(PluginLog, config, personaManager);
+        chatPipe = new ChatPipe(CommandManager, PluginLog, config, Framework, ChatGui);
+        autoListener = new AutoRouteListener(ChatGui, PluginLog, config, aiClient, chatPipe);
 
-        chatWindow      = new ChatWindow(PluginLog, aiClient, config, personaManager, memoryManager, chronicleManager, chatPipe);
-        settingsWindow  = new SettingsWindow(config, personaManager, memoryManager, chronicleManager);
+        // UI
+        chatWindow = new ChatWindow(PluginLog, aiClient, config, personaManager, memoryManager, chronicleManager, chatPipe);
+        settingsWindow = new SettingsWindow(config, personaManager, memoryManager, chronicleManager);
         chronicleWindow = new ChronicleWindow(config, chronicleManager);
 
         windowSystem.AddWindow(chatWindow);
         windowSystem.AddWindow(settingsWindow);
         windowSystem.AddWindow(chronicleWindow);
 
+        // Hooks
         PluginInterface.UiBuilder.Draw += DrawUi;
         PluginInterface.UiBuilder.OpenConfigUi += ToggleSettings;
 
-        CommandManager.AddHandler(CommandChat,  new CommandInfo(OnChat)  { HelpMessage = "Open AI Companion chat window" });
-        CommandManager.AddHandler(CommandChron, new CommandInfo(OnChron) { HelpMessage = "Open AI Nunu Chronicle window" });
+        // Commands
+        CommandManager.AddHandler(CommandChat, new CommandInfo(OnChat) { HelpMessage = "Open AI Companion chat window" });
+        CommandManager.AddHandler(CommandChron, new CommandInfo(OnChron) { HelpMessage = "Open AI Companion chronicle window" });
 
-        PluginLog.Info("[AI Companion] Plugin initialized; windows registered.");
+        PluginLog.Info("[AI Companion] Initialized.");
     }
 
     private void OnChat(string command, string args)
@@ -88,37 +95,42 @@ public sealed class Plugin : IDalamudPlugin
 
     private void DrawUi()
     {
-        try { windowSystem.Draw(); }
+        try
+        {
+            windowSystem.Draw();
+        }
         catch (Exception ex)
         {
             PluginLog.Error(ex, "WindowSystem.Draw failed");
         }
     }
 
+    // Convenience for other classes
     public static void OpenSettingsWindow() => Instance?.settingsWindow.Open();
     public static void OpenChatWindow() => Instance?.chatWindow.Open();
 
     public void Dispose()
     {
-        // ... inside Dispose()
         CommandManager.RemoveHandler(CommandChat);
         CommandManager.RemoveHandler(CommandChron);
+
         PluginInterface.UiBuilder.Draw -= DrawUi;
         PluginInterface.UiBuilder.OpenConfigUi -= ToggleSettings;
 
         windowSystem.RemoveAllWindows();
+
         autoListener.Dispose();
-        chatPipe.Dispose(); // <- direct call now that ChatPipe : IDisposable
+        chatPipe.Dispose();
         aiClient.Dispose();
         personaManager.Dispose();
         memoryManager.Dispose();
         chronicleManager.Dispose();
 
         Instance = null;
-
     }
 }
 
+// tiny helper to open any Window
 file static class WindowExt
 {
     public static void Open(this Window w) => w.IsOpen = true;

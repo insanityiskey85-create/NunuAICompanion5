@@ -1,10 +1,9 @@
-﻿using Dalamud.Plugin;
-using Dalamud.Plugin.Services;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
-using static AiCompanionPlugin.MemoryStore;
+using Dalamud.Plugin;
+using Dalamud.Plugin.Services;
 
 namespace AiCompanionPlugin;
 
@@ -12,87 +11,117 @@ public sealed class MemoryManager : IDisposable
 {
     private readonly IDalamudPluginInterface pi;
     private readonly IPluginLog log;
-    private readonly Configuration config;
+    private readonly Configuration cfg;
 
-    private readonly List<MemoryEntry> items = new();
+    private readonly object gate = new();
+    private List<MemoryNote> notes = new();
+    private string path = string.Empty;
 
-    public MemoryManager(IDalamudPluginInterface pi, IPluginLog log, Configuration config)
+    public IReadOnlyList<MemoryNote> Notes
     {
-        this.pi = pi; this.log = log; this.config = config;
-        Load();
+        get { lock (gate) return notes.AsReadOnly(); }
     }
 
-    public IReadOnlyList<MemoryEntry> Items => items;
+    public MemoryManager(IDalamudPluginInterface pi, IPluginLog log, Configuration cfg)
+    {
+        this.pi = pi; this.log = log; this.cfg = cfg;
+        path = GetPath();
+        EnsureLoaded();
+    }
 
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
-    private string GetMemoriesPath()
+    private string GetPath()
     {
         var dir = pi.GetPluginConfigDirectory();
         Directory.CreateDirectory(dir);
-        var name = string.IsNullOrWhiteSpace(config.MemoriesFileRelative) ? "memories.json" : config.MemoriesFileRelative;
-        return Path.Combine(dir, name);
+        var rel = string.IsNullOrWhiteSpace(cfg.MemoriesFileRelative) ? "memories.json" : cfg.MemoriesFileRelative;
+        return Path.Combine(dir, rel);
     }
 
-    public void Add(string role, string content)
+    private void EnsureLoaded()
     {
-        if (!config.EnableMemory) return;
-
-        items.Add(new MemoryEntry(DateTime.UtcNow, role, content));
-
-        // Trim if needed
-        if (items.Count > Math.Max(0, config.MaxMemories))
+        try
         {
-            var trim = items.Count - config.MaxMemories;
-            if (trim > 0) items.RemoveRange(0, trim);
+            if (!File.Exists(path))
+            {
+                Save(); // creates empty file
+                log.Info($"[Memory] Created {path}");
+                return;
+            }
+
+            var json = File.ReadAllText(path);
+            var loaded = JsonSerializer.Deserialize<List<MemoryNote>>(json) ?? new List<MemoryNote>();
+            lock (gate) notes = loaded;
+            log.Info($"[Memory] Loaded {notes.Count} notes");
+        }
+        catch (Exception ex)
+        {
+            log.Error(ex, "[Memory] Failed to load memories.json; starting fresh.");
+            lock (gate) notes = new();
+            Save();
+        }
+    }
+
+    public void AppendTurn(string userName, string userText, string aiName, string aiText)
+    {
+        if (!cfg.EnableMemory) return;
+
+        var items = new List<MemoryNote>
+        {
+            new(DateTimeOffset.UtcNow, "user", userName, userText),
+            new(DateTimeOffset.UtcNow, "assistant", aiName, aiText)
+        };
+
+        lock (gate)
+        {
+            notes.AddRange(items);
+            Prune_NoLock();
         }
 
-        if (config.AutoSaveMemory) Save();
+        if (cfg.AutoSaveMemory) Save();
     }
 
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
+    public void AddNote(string role, string author, string text)
+    {
+        if (!cfg.EnableMemory) return;
+        lock (gate)
+        {
+            notes.Add(new MemoryNote(DateTimeOffset.UtcNow, role, author, text));
+            Prune_NoLock();
+        }
+        if (cfg.AutoSaveMemory) Save();
+    }
+
     public void Save()
     {
         try
         {
-            var path = GetMemoriesPath();
-            var json = JsonSerializer.Serialize(items, new JsonSerializerOptions { WriteIndented = true });
+            List<MemoryNote> snap;
+            lock (gate) snap = new(notes);
+            var json = JsonSerializer.Serialize(snap, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(path, json);
         }
         catch (Exception ex)
         {
-            log.Error(ex, "Failed saving memories.json");
+            log.Error(ex, "[Memory] Save failed");
         }
     }
 
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
-    public void Load()
+    public void Prune()
     {
-        try
-        {
-            var path = GetMemoriesPath();
-            items.Clear();
-            if (File.Exists(path))
-            {
-                var json = File.ReadAllText(path);
-                var list = JsonSerializer.Deserialize<List<MemoryEntry>>(json) ?? new();
-                items.AddRange(list);
-            }
-        }
-        catch (Exception ex)
-        {
-            log.Error(ex, "Failed loading memories.json");
-        }
-    }
-
-    public void Clear()
-    {
-        items.Clear();
+        lock (gate) Prune_NoLock();
         Save();
     }
 
-    public void Dispose()
+    private void Prune_NoLock()
     {
-        if (config.EnableMemory && config.AutoSaveMemory)
-            Save();
+        var cap = Math.Max(16, cfg.MaxMemories);
+        if (notes.Count > cap)
+            notes.RemoveRange(0, notes.Count - cap);
     }
+
+    public string GetFilePath() => path;
+
+    public void Dispose() { /* nothing */ }
 }
+
+public sealed record MemoryNote(DateTimeOffset When, string Role, string Author, string Text);

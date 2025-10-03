@@ -63,10 +63,4 @@
     <None Include="assets\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   -->
-
-	<!-- ===== Optional: package zip after Release build ===== -->
-	<Target Name="PackagePlugin" AfterTargets="Build" Condition="'$(Configuration)'=='Release'">
-		<Exec Command="dotnet DalamudPackager -p $(TargetDir) -o $(TargetDir) -m $(ProjectDir)manifest.json -r $(ProjectDir)" />
-	</Target>
-
 </Project>

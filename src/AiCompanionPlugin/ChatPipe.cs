@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using System.Text;
 using System.Threading;
@@ -11,6 +12,10 @@ namespace AiCompanionPlugin;
 
 public enum ChatRoute { Party, Say }
 
+/// <summary>
+/// Robust outbound router for /party and /say with queued dispatch on Framework ticks.
+/// Prefers ICommandManager slash-command path; falls back to ChatGui reflective sends.
+/// </summary>
 public sealed class ChatPipe : IDisposable
 {
     private readonly ICommandManager commands;
@@ -19,8 +24,11 @@ public sealed class ChatPipe : IDisposable
     private readonly IChatGui chat;
     private readonly OutboundDispatcher dispatcher;
 
-    private readonly MethodInfo? sendChat;
-    private readonly MethodInfo? sendMessage;
+    // --- Reflected call-sites (cached) ---
+    private readonly MethodInfo? cmDispatch;     // ICommandManager.DispatchCommand(string, bool?)
+    private readonly MethodInfo? cmProcess;      // ICommandManager.ProcessCommand(string)
+    private readonly MethodInfo? chatSend;       // IChatGui.SendMessage(string) or SendChat(string)
+    private readonly MethodInfo? chatSend2;      // IChatGui.SendMessage(XivChatType, string) if present
 
     public ChatPipe(ICommandManager commands, IPluginLog log, Configuration config, IFramework framework, IChatGui chat)
     {
@@ -28,116 +36,131 @@ public sealed class ChatPipe : IDisposable
         this.log = log;
         this.config = config;
         this.chat = chat;
-        this.dispatcher = new OutboundDispatcher(framework, log) { MinIntervalMs = Math.Max(200, config.SayPostDelayMs / 2) };
 
-        var implType = chat.GetType();
-        sendChat = implType.GetMethod("SendChat", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, new Type[] { typeof(string) });
-        sendMessage = implType.GetMethod("SendMessage", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, new Type[] { typeof(string) });
+        dispatcher = new OutboundDispatcher(framework, log)
+        {
+            MinIntervalMs = Math.Max(200, config.SayPostDelayMs / 2)
+        };
+
+        // Resolve ICommandManager methods across API variants
+        var cmType = commands.GetType();
+        cmDispatch = FindMethod(cmType, "DispatchCommand", new[] { typeof(string) })
+                     ?? FindMethod(cmType, "DispatchCommand", new[] { typeof(string), typeof(bool) })
+                     ?? FindMethod(cmType, "DispatchCommand", new[] { typeof(string), typeof(bool?), typeof(bool?) });
+
+        cmProcess = FindMethod(cmType, "ProcessCommand", new[] { typeof(string) });
+
+        // Resolve ChatGui send methods across API variants
+        var chatType = chat.GetType();
+        chatSend = FindMethod(chatType, "SendMessage", new[] { typeof(string) })
+                    ?? FindMethod(chatType, "SendChat", new[] { typeof(string) });
+
+        // Optional: SendMessage(XivChatType, string)
+        chatSend2 = chatType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+            .FirstOrDefault(m =>
+            {
+                if (m.Name != "SendMessage") return false;
+                var p = m.GetParameters();
+                return p.Length == 2 && p[1].ParameterType == typeof(string); // first param will be enum at runtime
+            });
+
+        var path = $"Paths: CMD[Dispatch={cmDispatch != null}, Process={cmProcess != null}] | CHAT[Send1={chatSend != null}, Send2={chatSend2 != null}]";
+        log.Info($"ChatPipe init → {path}");
     }
 
-    private (string cmdPrefix, int chunk, int delay, int flushChars, int flushMs, bool enabled, string aiPrefix) GetRouteParams(ChatRoute route)
+    private static MethodInfo? FindMethod(Type t, string name, Type[] sig) =>
+        t.GetMethod(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, sig, null);
+
+    private (string cmdPrefix, int chunk, int delay, int flushChars, int flushMs, bool enabled, string aiPrefix, ChatRoute route) GetRouteParams(ChatRoute route)
     {
         var aiPrefix = string.IsNullOrWhiteSpace(config.AiDisplayName) ? "[AI Nunu] " : $"[{config.AiDisplayName}] ";
         return route switch
         {
             ChatRoute.Party => ("/party ", Math.Max(240, config.PartyChunkSize), Math.Max(250, config.PartyPostDelayMs),
                                 Math.Max(220, config.PartyStreamFlushChars), Math.Max(700, config.PartyStreamMinFlushMs),
-                                config.EnablePartyPipe, aiPrefix),
+                                config.EnablePartyPipe, aiPrefix, route),
             ChatRoute.Say => ("/say ", Math.Max(240, config.SayChunkSize), Math.Max(250, config.SayPostDelayMs),
                                 Math.Max(220, config.SayStreamFlushChars), Math.Max(700, config.SayStreamMinFlushMs),
-                                config.EnableSayPipe, aiPrefix),
-            _ => ("/say ", 360, 300, 220, 700, false, aiPrefix),
+                                config.EnableSayPipe, aiPrefix, route),
+            _ => ("/say ", 360, 300, 220, 700, false, aiPrefix, route),
         };
     }
 
+    // --------- Public API ---------
+
     public async Task<bool> SendToAsync(ChatRoute route, string? text, CancellationToken token = default, bool addPrefix = true)
     {
-        var (cmd, chunkSize, delay, _, _, enabled, aiPrefix) = GetRouteParams(route);
-        if (!enabled) { log.Info($"ChatPipe({route}): pipe disabled."); return false; }
+        var (cmd, chunkSize, delay, _, _, enabled, aiPrefix, r) = GetRouteParams(route);
+        if (!enabled) { log.Info($"ChatPipe({r}): pipe disabled."); return false; }
         if (string.IsNullOrWhiteSpace(text)) return false;
 
-        var payload = PrepareForNetwork(text, addPrefix ? aiPrefix : string.Empty, chunkSize);
-        foreach (var line in payload)
+        foreach (var line in PrepareForNetwork(text, addPrefix ? aiPrefix : string.Empty, chunkSize))
         {
             token.ThrowIfCancellationRequested();
-            await SendLineAsync(cmd, line, token).ConfigureAwait(false);
+            await SendLineAsync(cmd, line, r, token).ConfigureAwait(false);
             await Task.Delay(delay, token).ConfigureAwait(false);
         }
         return true;
     }
 
-    /// <summary>
-    /// STREAMING: buffer tokens and flush full sentences or near-max chunks.
-    /// This prevents one-word spam and keeps lines readable.
-    /// </summary>
     public async Task<bool> SendStreamingToAsync(ChatRoute route, IAsyncEnumerable<string> tokens, string headerForFirstLine, CancellationToken token = default)
     {
-        var (cmd, chunkSize, delay, flushCharsCfg, flushMsCfg, enabled, aiPrefix) = GetRouteParams(route);
-        if (!enabled) { log.Info($"ChatPipe({route}): pipe disabled."); return false; }
+        var (cmd, chunkSize, delay, flushCharsCfg, flushMsCfg, enabled, aiPrefix, r) = GetRouteParams(route);
+        if (!enabled) { log.Info($"ChatPipe({r}): pipe disabled."); return false; }
 
         headerForFirstLine ??= string.Empty;
 
-        // Prefixes for the first/continuation lines
         var firstPrefix = aiPrefix + headerForFirstLine;
         var contPrefix = "… ";
 
-        // Max payload per line after prefix
         var firstCap = Math.Max(120, chunkSize - GetLen(firstPrefix));
         var contCap = Math.Max(120, chunkSize - GetLen(contPrefix));
 
-        // Sentence-aware buffer
         var sb = new StringBuilder(1024);
         var first = true;
 
-        // Flush policy
-        var minFlushMs = Math.Max(500, flushMsCfg);     // wait a bit to gather words
-        var hardFlushMs = Math.Max(minFlushMs + 600, 1600); // force flush if backend trickles too slowly
+        var minFlushMs = Math.Max(500, flushMsCfg);
+        var hardFlushMs = Math.Max(minFlushMs + 600, 1600);
         var lastFlush = Environment.TickCount64;
-        var lastToken = Environment.TickCount64;
 
         await foreach (var t in tokens.WithCancellation(token))
         {
-            if (string.IsNullOrEmpty(t)) continue;
-            sb.Append(t);
-            lastToken = Environment.TickCount64;
+            if (!string.IsNullOrEmpty(t))
+                sb.Append(t);
 
-            // Decide if we should flush now
-            var lineCap = first ? firstCap : contCap;
-            var length = sb.Length;
             var elapsed = (int)(Environment.TickCount64 - lastFlush);
+            var cap = first ? firstCap : contCap;
+            var reachedCap = sb.Length >= cap - 8;
+            var endSentence = sb.Length >= 60 && EndsWithSentence(sb);
+            var idleTimeout = elapsed >= hardFlushMs;
+            var minWindow = elapsed >= minFlushMs;
 
-            bool reachedCap = length >= lineCap - 8; // small safety margin
-            bool endSentence = length >= 60 && EndsWithSentence(sb); // decent sentence
-            bool idleTimeout = elapsed >= hardFlushMs;               // too long without flush
-            bool minWindowMet = elapsed >= minFlushMs;
-
-            if ((reachedCap || endSentence || idleTimeout) && (minWindowMet || reachedCap || idleTimeout))
+            if ((reachedCap || endSentence || idleTimeout) && (minWindow || reachedCap || idleTimeout))
             {
-                // spill as much as possible up to line cap
                 while (sb.Length > 0 && (reachedCap || endSentence || idleTimeout))
                 {
-                    var chunk = TakeUntil(sb, lineCap);
-                    await SendLineAsync(cmd, San((first ? firstPrefix : contPrefix) + chunk), token).ConfigureAwait(false);
+                    token.ThrowIfCancellationRequested();
+                    var chunk = TakeUntil(sb, cap);
+                    await SendLineAsync(cmd, San((first ? firstPrefix : contPrefix) + chunk), r, token).ConfigureAwait(false);
                     first = false;
                     lastFlush = Environment.TickCount64;
 
-                    // re-evaluate after sending
-                    lineCap = contCap;
-                    reachedCap = sb.Length >= lineCap - 8;
+                    cap = contCap;
+                    reachedCap = sb.Length >= cap - 8;
                     endSentence = sb.Length >= 60 && EndsWithSentence(sb);
-                    idleTimeout = false; // reset after a send
+                    idleTimeout = false;
                 }
-
                 await Task.Delay(delay, token).ConfigureAwait(false);
             }
         }
 
-        // Final spill of remaining buffer (may be multiple lines if long)
+        // final spill
         var finalCap = first ? firstCap : contCap;
         while (sb.Length > 0)
         {
+            token.ThrowIfCancellationRequested();
             var chunk = TakeUntil(sb, finalCap);
-            await SendLineAsync(cmd, San((first ? firstPrefix : contPrefix) + chunk), token).ConfigureAwait(false);
+            await SendLineAsync(cmd, San((first ? firstPrefix : contPrefix) + chunk), r, token).ConfigureAwait(false);
             first = false;
             finalCap = contCap;
             await Task.Delay(80, token).ConfigureAwait(false);
@@ -146,11 +169,11 @@ public sealed class ChatPipe : IDisposable
         return true;
     }
 
-    // ---- core send path (queued to dispatcher) ----
-    private Task SendLineAsync(string cmdPrefix, string line, CancellationToken token)
+    // --------- Core send (queued) ---------
+
+    private Task SendLineAsync(string cmdPrefix, string line, ChatRoute route, CancellationToken token)
     {
-        var text = line;
-        if (config.NetworkAsciiOnly) text = StripNonAscii(text);
+        var text = config.NetworkAsciiOnly ? StripNonAscii(line) : line;
         var full = cmdPrefix + text;
 
         var tcs = new TaskCompletionSource();
@@ -158,32 +181,31 @@ public sealed class ChatPipe : IDisposable
         {
             try
             {
-                if (sendChat != null)
+                // -------- Preferred: ICommandManager slash command --------
+                if (TryCommandDispatch(full))
                 {
-                    var arg = text.StartsWith("/") ? text : full;
-                    sendChat.Invoke(chat, new object[] { arg });
-                }
-                else if (sendMessage != null)
-                {
-                    var arg = text.StartsWith("/") ? text : full;
-                    sendMessage.Invoke(chat, new object[] { arg });
-                }
-                else
-                {
-                    commands.ProcessCommand(full);
+                    OnEcho(route, text);
+                    tcs.TrySetResult();
+                    return;
                 }
 
-                if (config.DebugChatTap)
-                    chat.Print($"[AI Companion:{(cmdPrefix.StartsWith("/party") ? "Party" : "Say")}] → {text}");
+                // -------- Fallback: ChatGui string send --------
+                if (TryChatSendString(full))
+                {
+                    OnEcho(route, text);
+                    tcs.TrySetResult();
+                    return;
+                }
 
-                log.Info($"ChatPipe({(cmdPrefix.StartsWith("/party") ? "Party" : "Say")}) sent {text.Length} chars.");
-                tcs.TrySetResult();
-            }
-            catch (TargetInvocationException ex)
-            {
-                log.Error(ex.InnerException ?? ex, "ChatPipe reflective send failed; falling back to ProcessCommand.");
-                try { commands.ProcessCommand(full); tcs.TrySetResult(); }
-                catch (Exception ex2) { tcs.TrySetException(ex2); }
+                // -------- Last-chance: ChatGui SendMessage(XivChatType, string) --------
+                if (TryChatSendTyped(cmdPrefix, text))
+                {
+                    OnEcho(route, text);
+                    tcs.TrySetResult();
+                    return;
+                }
+
+                throw new InvalidOperationException("No available chat send path (Dispatch/Process/ChatGui) succeeded.");
             }
             catch (Exception ex)
             {
@@ -195,17 +217,118 @@ public sealed class ChatPipe : IDisposable
             return tcs.Task;
     }
 
-    // ---- helpers ----
+    private bool TryCommandDispatch(string full)
+    {
+        try
+        {
+            if (cmDispatch != null)
+            {
+                // handle possible optional bool parameters
+                var pars = cmDispatch.GetParameters();
+                if (pars.Length == 1) cmDispatch.Invoke(commands, new object[] { full });
+                else if (pars.Length == 2) cmDispatch.Invoke(commands, new object[] { full, false });
+                else if (pars.Length >= 3) cmDispatch.Invoke(commands, new object[] { full, false, false });
+                log.Info("ChatPipe → ICommandManager.DispatchCommand()");
+                return true;
+            }
+            if (cmProcess != null)
+            {
+                cmProcess.Invoke(commands, new object[] { full });
+                log.Info("ChatPipe → ICommandManager.ProcessCommand()");
+                return true;
+            }
+        }
+        catch (TargetInvocationException tex)
+        {
+            log.Error(tex.InnerException ?? tex, "Dispatch/ProcessCommand threw");
+        }
+        catch (Exception ex)
+        {
+            log.Error(ex, "Dispatch/ProcessCommand failed");
+        }
+        return false;
+    }
+
+    private bool TryChatSendString(string full)
+    {
+        try
+        {
+            if (chatSend != null)
+            {
+                chatSend.Invoke(chat, new object[] { full });
+                log.Info("ChatPipe → ChatGui.Send(string)");
+                return true;
+            }
+        }
+        catch (TargetInvocationException tex)
+        {
+            log.Error(tex.InnerException ?? tex, "ChatGui.Send(string) threw");
+        }
+        catch (Exception ex)
+        {
+            log.Error(ex, "ChatGui.Send(string) failed");
+        }
+        return false;
+    }
+
+    private bool TryChatSendTyped(string cmdPrefix, string text)
+    {
+        try
+        {
+            if (chatSend2 == null) return false;
+
+            // identify enum argument dynamically to avoid a hard dependency on the enum's assembly identity
+            var pars = chatSend2.GetParameters();
+            var enumType = pars[0].ParameterType; // should be XivChatType
+            object? channel = null;
+
+            var wantSay = cmdPrefix.StartsWith("/say", StringComparison.OrdinalIgnoreCase);
+            var nameSay = Enum.GetNames(enumType).FirstOrDefault(n => n.Equals("Say", StringComparison.OrdinalIgnoreCase));
+            var nameParty = Enum.GetNames(enumType).FirstOrDefault(n => n.Equals("Party", StringComparison.OrdinalIgnoreCase));
+            var chosenName = wantSay ? nameSay : nameParty;
+            if (chosenName == null) return false;
+
+            channel = Enum.Parse(enumType, chosenName);
+            chatSend2.Invoke(chat, new object[] { channel!, text });
+            log.Info("ChatPipe → ChatGui.SendMessage(XivChatType, string)");
+            return true;
+        }
+        catch (TargetInvocationException tex)
+        {
+            log.Error(tex.InnerException ?? tex, "ChatGui.Send(typed) threw");
+        }
+        catch (Exception ex)
+        {
+            log.Error(ex, "ChatGui.Send(typed) failed");
+        }
+        return false;
+    }
+
+    private void OnEcho(ChatRoute route, string text)
+    {
+        if (config.DebugChatTap)
+            chat.Print($"[AI Companion:{(route == ChatRoute.Party ? "Party" : "Say")}] → {text}");
+        log.Info($"ChatPipe({(route == ChatRoute.Party ? "Party" : "Say")}) sent {text.Length} chars.");
+    }
+
+    // --------- Chunking / helpers ---------
+
+    private IEnumerable<string> PrepareForNetwork(string text, string prefix, int chunkSize)
+    {
+        text = text.Replace("\r\n", "\n").Trim();
+        var max = Math.Max(200, chunkSize - GetLen(prefix));
+        foreach (var chunk in ChunkSmart(text, max))
+            yield return (prefix + chunk);
+    }
+
     private static bool EndsWithSentence(StringBuilder sb)
     {
-        // look at last 1–3 non-space chars
         int i = sb.Length - 1;
         while (i >= 0 && char.IsWhiteSpace(sb[i])) i--;
         if (i < 0) return false;
 
         char c = sb[i];
         if (c is '.' or '!' or '?' or '…') return true;
-        // handle “).” or “!” after quote
         if (c is '"' or '\'' or ')' or ']' or '»')
         {
             i--;
@@ -221,8 +344,6 @@ public sealed class ChatPipe : IDisposable
     private static string TakeUntil(StringBuilder sb, int cap)
     {
         if (sb.Length <= cap) { var all = sb.ToString(); sb.Clear(); return all; }
-
-        // Try to cut at last whitespace before cap
         int cut = cap;
         for (int i = cap; i >= Math.Max(0, cap - 40); i--)
         {
@@ -231,14 +352,6 @@ public sealed class ChatPipe : IDisposable
         var s = sb.ToString(0, cut).TrimEnd();
         sb.Remove(0, cut);
         return s;
-    }
-
-    private IEnumerable<string> PrepareForNetwork(string text, string prefix, int chunkSize)
-    {
-        text = text.Replace("\r\n", "\n").Trim();
-        var max = Math.Max(200, chunkSize - GetLen(prefix));
-        foreach (var chunk in ChunkSmart(text, max))
-            yield return (prefix + chunk);
     }
 
     private static int GetLen(string s) => s?.Length ?? 0;

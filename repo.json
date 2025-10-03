@@ -15,7 +15,7 @@
     "DownloadLinkUpdate": "https://github.com/insanityiskey85-create/NunuAICompanion5/releases/download/v1.0.1.8/AiCompanionPlugin.zip",
     "DownloadLinkTesting": "https://github.com/insanityiskey85-create/NunuAICompanion5/releases/download/v1.0.1.8/AiCompanionPlugin.zip",
     "IconUrl": "https://raw.githubusercontent.com/insanityiskey85-create/NunuAICompanion5/master/WOW.png",
-    "ImageUrls": "[],
+    "ImageUrls": "[]",
     "Changelog": "v1.0.1.8 —18th public release.",
     "LoadPriority": 0,
     "AcceptsFeedback": false,

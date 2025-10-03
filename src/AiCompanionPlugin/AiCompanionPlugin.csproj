@@ -42,9 +42,7 @@
 			<Private>false</Private>
 		</Reference>
 	</ItemGroup>
-
-
-	<!-- Optional: copy persona/memory templates into build output for convenience -->
+    <!-- Optional: copy persona/memory templates into build output for convenience -->
 	<ItemGroup>
 		<None Include="persona.txt" CopyToOutputDirectory="PreserveNewest" Condition="Exists('persona.txt')" />
 		<None Include="README.md" CopyToOutputDirectory="PreserveNewest" Condition="Exists('README.md')" />

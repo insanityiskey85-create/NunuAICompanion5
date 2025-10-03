@@ -1,126 +1,323 @@
-﻿using System;
-using System.Linq;
+﻿// SPDX-License-Identifier: MIT
+// AiCompanionPlugin - ChronicleWindow.cs
+
+#nullable enable
+using Dalamud.Plugin;
 using System.Numerics;
 using System.Text;
-using Dalamud.Interface.Windowing;
 
+// IMPORTANT: use Dalamud.Bindings.ImGui only; no ImGuiNET here.
 
-namespace AiCompanionPlugin;
-
-public sealed class ChronicleWindow : Window
+namespace AiCompanionPlugin
 {
-    private readonly Configuration config;
-    private readonly ChronicleManager manager;
-
-    private string search = string.Empty;
-    private int selectedIndex = -1;
-    private string exportStatus = string.Empty;
-
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
-    public ChronicleWindow(Configuration config, ChronicleManager manager)
-        : base("AI Nunu — Chronicle", ImGuiWindowFlags.None)
+    /// <summary>
+    /// Chronicle editor/viewer. Stores entries in the path indicated by Configuration.ChronicleFileRelative,
+    /// resolved against Dalamud's plugin ConfigDirectory.
+    /// </summary>
+    public sealed class ChronicleWindow
     {
-        this.config = config;
-        this.manager = manager;
-        SizeConstraints = new WindowSizeConstraints
+        private readonly Configuration config;
+        private readonly IDalamudPluginInterface pluginInterface;
+
+        private bool isOpen = true;
+
+        // Working buffers
+        private string chroniclePath = string.Empty;
+        private string contentBuffer = string.Empty;
+        private string newEntryBuffer = string.Empty;
+
+        // UI sizing
+        private float contentHeight = 320f;
+        private float entryHeight = 90f;
+
+        public ChronicleWindow(Configuration config, IDalamudPluginInterface pluginInterface)
         {
-            MinimumSize = new Vector2(560, 420),
-            MaximumSize = new Vector2(float.MaxValue, float.MaxValue)
-        };
-    }
+            this.config = config ?? throw new ArgumentNullException(nameof(config));
+            this.pluginInterface = pluginInterface ?? throw new ArgumentNullException(nameof(pluginInterface));
 
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
-    public override void Draw()
-    {
-        var pops = ThemePalette.ApplyTheme(config.ThemeName ?? "Eorzean Night");
+            chroniclePath = ResolveChroniclePath();
+            EnsureDirectoryExists();
+            TryLoadFile();
+        }
 
-        ImGui.InputTextWithHint("##search", "Search text…", ref search, 512);
-        ImGui.SameLine();
-        if (ImGui.Button("Refresh")) manager.Load();
-        ImGui.SameLine();
-        if (ImGui.Button("Clear Chronicle")) { manager.Clear(); selectedIndex = -1; }
+        public bool IsOpen
+        {
+            get => isOpen;
+            set => isOpen = value;
+        }
 
-        ImGui.SameLine();
-        if (ImGui.Button("Export .md"))
+        public void Draw()
+        {
+            if (!isOpen)
+                return;
+
+            if (!ImGui.Begin($"Chronicle — {config.ChronicleStyle}", ref isOpen))
+            {
+                ImGui.End();
+                return;
+            }
+
+            DrawPathRow();
+            ImGui.Separator();
+
+            DrawContentView();
+            ImGui.Separator();
+
+            DrawNewEntry();
+            ImGui.Separator();
+
+            DrawActions();
+
+            ImGui.End();
+        }
+
+        // ---------------- UI Sections ----------------
+
+        private void DrawPathRow()
+        {
+            ImGui.TextDisabled("File");
+            ImGui.SameLine();
+            ImGui.TextUnformatted(chroniclePath);
+
+            ImGui.SameLine();
+            if (ImGui.Button("Reload"))
+            {
+                TryLoadFile();
+            }
+
+            ImGui.SameLine();
+            if (ImGui.Button("Open Folder"))
+            {
+                TryOpenFolder();
+            }
+        }
+
+        private void DrawContentView()
+        {
+            ImGui.TextDisabled("Chronicle Content");
+            ImGui.SameLine();
+            ImGui.SetNextItemWidth(120f);
+            ImGui.SliderFloat("##content_height", ref contentHeight, 200f, 800f, "Height: %.0f");
+
+            if (ImGui.BeginChild("##chronicle_content", new Vector2(-1, contentHeight), true))
+            {
+                ImGui.PushTextWrapPos(0);
+                ImGui.InputTextMultiline("##chronicle_content_text", ref contentBuffer, 1024 * 1024, new Vector2(-1, -1));
+                ImGui.PopTextWrapPos();
+                ImGui.EndChild();
+            }
+        }
+
+        private void DrawNewEntry()
+        {
+            ImGui.TextDisabled("New Entry");
+            ImGui.SameLine();
+            ImGui.SetNextItemWidth(120f);
+            ImGui.SliderFloat("##entry_height", ref entryHeight, 60f, 300f, "Height: %.0f");
+
+            if (ImGui.BeginChild("##new_entry", new Vector2(-1, entryHeight), true))
+            {
+                ImGui.PushTextWrapPos(0);
+                ImGui.InputTextMultiline("##new_entry_text", ref newEntryBuffer, 64 * 1024, new Vector2(-1, -1));
+                ImGui.PopTextWrapPos();
+                ImGui.EndChild();
+            }
+        }
+
+        private void DrawActions()
+        {
+            if (ImGui.Button("Save Whole File"))
+            {
+                TrySaveFile();
+            }
+
+            ImGui.SameLine();
+            if (ImGui.Button("Append Entry"))
+            {
+                AppendEntry();
+            }
+
+            ImGui.SameLine();
+            if (ImGui.Button("Trim To Max Entries"))
+            {
+                TrimToMaxEntries();
+                TrySaveFile();
+            }
+
+            ImGui.SameLine();
+            ImGui.TextDisabled($"Max: {config.ChronicleMaxEntries} • Auto-Append: {(config.ChronicleAutoAppend ? "On" : "Off")}");
+        }
+
+        // ---------------- Behavior ----------------
+
+        private string ResolveChroniclePath()
+        {
+            // Modern Dalamud: use ConfigDirectory (DirectoryInfo), not GetPluginConfigDirectory()
+            var baseDir = pluginInterface.ConfigDirectory?.FullName ?? AppContext.BaseDirectory;
+            var rel = config.ChronicleFileRelative;
+            if (string.IsNullOrWhiteSpace(rel)) rel = "Data/chronicle.md";
+            return Path.GetFullPath(Path.Combine(baseDir, rel));
+        }
+
+        private void EnsureDirectoryExists()
         {
             try
             {
-                var md = manager.ExportMarkdown();
-                var dir = Plugin.PluginInterface.GetPluginConfigDirectory();
-                var path = System.IO.Path.Combine(dir, "chronicle.md");
-                System.IO.File.WriteAllText(path, md, Encoding.UTF8);
-                exportStatus = $"Exported to {path}";
+                var dir = Path.GetDirectoryName(chroniclePath);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                    Directory.CreateDirectory(dir);
+            }
+            catch { /* swallow; draw still works, saves will fail with message */ }
+        }
+
+        private void TryLoadFile()
+        {
+            try
+            {
+                contentBuffer = File.Exists(chroniclePath)
+                    ? File.ReadAllText(chroniclePath, new UTF8Encoding(false))
+                    : string.Empty;
             }
             catch (Exception ex)
             {
-                exportStatus = $"Export failed: {ex.Message}";
+                contentBuffer = $"# Load error\n{ex.GetType().Name}: {ex.Message}\n";
             }
         }
-        if (!string.IsNullOrEmpty(exportStatus))
+
+        private void TrySaveFile()
         {
-            ImGui.SameLine();
-            ImGui.TextDisabled(exportStatus);
+            try
+            {
+                EnsureDirectoryExists();
+                File.WriteAllText(chroniclePath, contentBuffer ?? string.Empty, new UTF8Encoding(false));
+            }
+            catch (Exception ex)
+            {
+                // reflect error inside the buffer so the user sees it immediately
+                contentBuffer += $"\n\n<!-- Save error: {ex.GetType().Name}: {ex.Message} -->\n";
+            }
         }
 
-        ImGui.Separator();
-        ImGui.BeginChild("list", new Vector2(260, -2), true);
-
-        var items = manager.Entries.Select((e, i) => (Entry: e, Index: i)).ToList();
-        if (!string.IsNullOrWhiteSpace(search))
+        private void AppendEntry()
         {
-            var s = search.ToLowerInvariant();
-            items = items.Where(x =>
-                (x.Entry.UserText?.ToLowerInvariant().Contains(s) ?? false) ||
-                (x.Entry.AiText?.ToLowerInvariant().Contains(s) ?? false) ||
-                (x.Entry.Model?.ToLowerInvariant().Contains(s) ?? false) ||
-                (x.Entry.Style?.ToLowerInvariant().Contains(s) ?? false)
-            ).ToList();
+            var entry = (newEntryBuffer ?? string.Empty).Trim();
+            if (entry.Length == 0)
+                return;
+
+            // Build stamped line(s) depending on style
+            var stamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
+            string block = config.ChronicleStyle?.ToLowerInvariant() switch
+            {
+                "markdown" => $"- **{stamp}** — {entry}\n",
+                "timeline" => $"[{stamp}] {entry}\n",
+                // default "journal" style
+                _ => $"## {stamp}\n{entry}\n"
+            };
+
+            if (!contentBuffer.EndsWith("\n"))
+                contentBuffer += "\n";
+
+            contentBuffer += block;
+
+            // Auto-trim if configured
+            if (config.ChronicleAutoAppend)
+            {
+                TrimToMaxEntries();
+            }
+
+            // Clear input on success
+            newEntryBuffer = string.Empty;
+
+            TrySaveFile();
         }
 
-        for (int it = items.Count - 1; it >= 0; it--) // newest first
+        private void TrimToMaxEntries()
         {
-            var i = items[it].Index;
-            var e = items[it].Entry;
-            var label = $"{e.TimestampUtc.ToLocalTime():MM-dd HH:mm} · {Shorten(e.UserText)}";
-            if (ImGui.Selectable(label, selectedIndex == i))
-                selectedIndex = i;
+            int max = Math.Max(1, config.ChronicleMaxEntries);
+
+            // A simple heuristic: split into logical entries by style and keep the newest N.
+            // For "journal": entries start with lines beginning with "## "
+            // For "markdown" and "timeline": entries are line-based items
+            var style = config.ChronicleStyle?.ToLowerInvariant();
+            if (style == "journal")
+            {
+                var lines = (contentBuffer ?? string.Empty).Replace("\r\n", "\n").Split('\n');
+                var entries = new List<List<string>>();
+                List<string>? current = null;
+
+                foreach (var line in lines)
+                {
+                    if (line.StartsWith("## "))
+                    {
+                        if (current is not null) entries.Add(current);
+                        current = new List<string> { line };
+                    }
+                    else
+                    {
+                        (current ??= new List<string>()).Add(line);
+                    }
+                }
+                if (current is not null) entries.Add(current);
+
+                // keep last N
+                var trimmed = entries.Count > max ? entries.GetRange(Math.Max(0, entries.Count - max), Math.Min(max, entries.Count)) : entries;
+
+                var sb = new StringBuilder(contentBuffer.Length);
+                for (int i = 0; i < trimmed.Count; i++)
+                {
+                    foreach (var l in trimmed[i])
+                        sb.AppendLine(l);
+                    if (i < trimmed.Count - 1)
+                        sb.AppendLine();
+                }
+                contentBuffer = sb.ToString();
+            }
+            else
+            {
+                // line-oriented styles: keep last N non-empty lines
+                var lines = new List<string>();
+                foreach (var l in (contentBuffer ?? string.Empty).Replace("\r\n", "\n").Split('\n'))
+                {
+                    if (!string.IsNullOrWhiteSpace(l))
+                        lines.Add(l);
+                }
+
+                if (lines.Count > max)
+                    lines = lines.GetRange(Math.Max(0, lines.Count - max), Math.Min(max, lines.Count));
+
+                contentBuffer = string.Join('\n', lines) + "\n";
+            }
         }
-        ImGui.EndChild();
 
-        ImGui.SameLine();
-
-        ImGui.BeginChild("detail", new Vector2(0, -2), true);
-        if (selectedIndex >= 0 && selectedIndex < manager.Entries.Count)
+        private void TryOpenFolder()
         {
-            var e = manager.Entries[selectedIndex];
-            ImGui.TextDisabled($"{e.TimestampUtc.ToLocalTime():yyyy-MM-dd HH:mm}  ·  Model: {e.Model}  ·  Style: {e.Style}");
-            ImGui.Separator();
-            ImGui.TextColored(new Vector4(0.75f, 0.75f, 0.95f, 1f), "You");
-            ImGui.PushTextWrapPos();
-            ImGui.TextUnformatted(e.UserText);
-            ImGui.PopTextWrapPos();
+            try
+            {
+                var folder = Path.GetDirectoryName(chroniclePath);
+                if (string.IsNullOrEmpty(folder))
+                    return;
 
-            ImGui.Separator();
-
-            var aiName = string.IsNullOrWhiteSpace(config.AiDisplayName) ? "AI Nunu" : config.AiDisplayName;
-            ImGui.TextColored(new Vector4(0.85f, 0.8f, 1f, 1f), aiName);
-            ImGui.PushTextWrapPos();
-            ImGui.TextUnformatted(e.AiText);
-            ImGui.PopTextWrapPos();
+                // Platform-agnostic attempt
+                var path = folder;
+#if WINDOWS
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "explorer",
+                    Arguments = $"\"{path}\"",
+                    UseShellExecute = true
+                });
+#else
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = path,
+                    UseShellExecute = true
+                });
+#endif
+            }
+            catch
+            {
+                // Non-fatal; ignore
+            }
         }
-        else
-        {
-            ImGui.TextDisabled("Select an entry to view details.");
-        }
-        ImGui.EndChild();
-
-        ThemePalette.PopTheme(pops);
-    }
-
-    private static string Shorten(string? text)
-    {
-        if (string.IsNullOrWhiteSpace(text)) return "(no text)";
-        var t = text.Replace("\r\n", " ").Replace("\n", " ");
-        return t.Length > 36 ? t.Substring(0, 36) + "…" : t;
     }
 }

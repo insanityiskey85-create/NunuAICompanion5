@@ -1,57 +1,59 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
+
 	<PropertyGroup>
-		<TargetFramework>net9.0</TargetFramework>
-		<Nullable>enable</Nullable>
-		<LangVersion>latest</LangVersion>
+		<!-- Dalamud plugins typically target Windows .NET; adjust if your template differs -->
+		<TargetFramework>net9.0-windows</TargetFramework>
+
 		<ImplicitUsings>enable</ImplicitUsings>
-		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+		<Nullable>enable</Nullable>
 
-		<!-- Enable native path only when we reference the DLL -->
-		<DefineConstants>TRACE;HAS_CLIENTSTRUCTS</DefineConstants>
+		<!-- Optional quality-of-life flags -->
+		<Optimize>true</Optimize>
+		<LangVersion>latest</LangVersion>
 
-		<OutputType>Library</OutputType>
-		<Description>Isolated AI chat companion for Dalamud.</Description>
-		<DalamudApiLevel>13</DalamudApiLevel>
-		<IsPackable>true</IsPackable>
+		<!-- Ensure local copies of referenced assemblies (useful for packaging) -->
+		<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+
+		<!-- Generate PDBs for better crash logs -->
+		<DebugType>portable</DebugType>
 	</PropertyGroup>
 
+	<!-- IMPORTANT:
+       Do NOT list <Compile Include="*.cs"> here. The SDK already includes all .cs
+       under the project folder. Listing them again causes NETSDK1022. -->
+
+	<!-- Typical Dalamud packaging helper (version may vary in your setup) -->
 	<ItemGroup>
-		<PackageReference Include="DalamudPackager" Version="2.1.10" PrivateAssets="all" />
+		<PackageReference Include="DalamudPackager" Version="2.1.12" PrivateAssets="All" />
 	</ItemGroup>
 
-	<!-- Local DLL reference (no NuGet). Do NOT copy to output; Dalamud loads us in-process. -->
+	<!-- Reference Dalamud runtime; path may vary if you use dev/stable channels or a custom build setup.
+       Keep whichever block matches your environment; remove the others if unnecessary. -->
 	<ItemGroup>
-  <!-- Dalamud core -->
-  <Reference Include="Dalamud">
-    <HintPath>Libs\Dalamud.dll</HintPath>
-    <Private>false</Private>
-  </Reference>
+		<Reference Include="Dalamud">
+			<HintPath>$(AppData)\XIVLauncher\addon\Hooks\dev\Dalamud.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="Dalamud.Bindings.ImGui">
+			<HintPath>$(AppData)\XIVLauncher\addon\Hooks\dev\Dalamud.Bindings.ImGui.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="Newtonsoft.Json">
+			<HintPath>$(AppData)\XIVLauncher\addon\Hooks\dev\Newtonsoft.Json.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+	</ItemGroup>
 
-  <!-- Dalamud UI helpers -->
-  <Reference Include="Dalamud.Interface">
-    <HintPath>Libs\Dalamud.Interface.dll</HintPath>
-    <Private>false</Private>
-  </Reference>
+	<!-- If you use Dalamud’s service interfaces (IChatGui, IFramework, IPluginLog, etc.),
+       you usually don’t need extra PackageReferences—just the runtime references above. -->
 
-  <!-- ImGui binding (namespace is ImGuiNET) -->
-  <Reference Include="Dalamud.Bindings.ImGui">
-    <HintPath>Libs\Dalamud.Bindings.ImGui.dll</HintPath>
-    <Private>false</Private>
-  </Reference>
+	<!-- If you previously had explicit Compile items, they should be removed.
+       Example of what NOT to include:
+       <ItemGroup>
+         <Compile Include="ChatPipe.cs" />
+         <Compile Include="ChatTwoBridge.cs" />
+         ...
+       </ItemGroup>
+  -->
 
-  <!-- FFXIV client structs (native interop types) -->
-  <Reference Include="FFXIVClientStructs">
-    <HintPath>Libs\FFXIVClientStructs.dll</HintPath>
-    <Private>false</Private>
-  </Reference>
-</ItemGroup>
-
-<Target Name="CopyDalamudRefs" BeforeTargets="Build">
-		<PropertyGroup>
-			<DalamudLibPath Condition=" '$(DalamudLibPath)' == '' ">$(AppData)\XIVLauncher\addon\Hooks\dev</DalamudLibPath>
-		</PropertyGroup>
-	</Target>
-
-	<Import Project="$(DalamudLibPath)\DalamudPackager.targets"
-			Condition="Exists('$(DalamudLibPath)\DalamudPackager.targets')" />
 </Project>

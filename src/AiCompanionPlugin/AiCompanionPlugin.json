@@ -1,13 +1,22 @@
 {
-  "Name": "AI Companion",
   "Author": "The Real Nunu",
-  "Punchline": "Isolated AI chat companion window.",
+  "Name": "AI Companion",
+  "InternalName": "AiCompanionPlugin",
+  "AssemblyVersion": "1.0.0.0",
   "Description": "Private AI chat window. No chat hooks. Persona via persona.txt.",
-  "RepoUrl": "https://github.com/insanityiskey85-create/NunuAICompanion5",
-  "IconUrl": "https://raw.githubusercontent.com/insanityiskey85-create/NunuAICompanion5/master/WOW.png",
-  "DalamudApiLevel": 13,
   "ApplicableVersion": "any",
-  "Tags": [ "AI", "chat", "companion" ],
+  "RepoUrl": "https://github.com/insanityiskey85-create/NunuAICompanion5",
+  "Tags": [
+    "AI",
+    "chat",
+    "companion"
+  ],
+  "DalamudApiLevel": 13,
+  "LoadRequiredState": 0,
+  "LoadSync": false,
+  "LoadPriority": 0,
+  "IconUrl": "https://raw.githubusercontent.com/insanityiskey85-create/NunuAICompanion5/master/WOW.png",
+  "Punchline": "Isolated AI chat companion window.",
   "Changelog": "Initial build with local Dalamud path and VS solution.",
-  "Version": "1.0.0.6"
+  "AcceptsFeedback": true
 }

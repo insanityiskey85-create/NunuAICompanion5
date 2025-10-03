@@ -1,53 +1,49 @@
-﻿using System;
-using System.Text;
-using Dalamud.Plugin;
+﻿// SPDX-License-Identifier: MIT
+// AiCompanionPlugin - ChatPipe.cs
+//
+// High-level router that uses OutboundDispatcher + NativeChatPipe (and ChatTwo if available).
+
+#nullable enable
+using System;
 using Dalamud.Plugin.Services;
 
-namespace AiCompanionPlugin;
-
-public sealed class ChatPipe
+namespace AiCompanionPlugin
 {
-    private readonly ICommandManager commands;
-    private readonly IPluginLog log;
-    private readonly IFramework framework;
-    private readonly IChatGui chatGui;
-    private readonly IDalamudPluginInterface pi;
-    private readonly Configuration config;
-
-    public ChatPipe(ICommandManager commands, IPluginLog log, IFramework framework, IChatGui chatGui, IDalamudPluginInterface pi, Configuration config)
+    public sealed class ChatPipe : IDisposable
     {
-        this.commands = commands;
-        this.log = log;
-        this.framework = framework;
-        this.chatGui = chatGui;
-        this.pi = pi;
-        this.config = config;
-    }
+        private readonly Configuration config;
+        private readonly IPluginLog log;
+        private readonly NativeChatPipe native;
+        private readonly OutboundDispatcher dispatcher;
+        private readonly ChatTwoBridge? chatTwo;
 
-    public bool TrySendSay(string text)
-    {
-        var payload = PrepareOutbound(text, asciiOnly: config.UseAsciiOnlyNetwork);
-        log.Info($"ChatPipe → ICommandManager.ProcessCommand()");
-        commands.ProcessCommand($"/say {payload}");
-        return true;
-    }
-
-    public bool TrySendParty(string text)
-    {
-        var payload = PrepareOutbound(text, asciiOnly: config.UseAsciiOnlyNetwork);
-        log.Info($"ChatPipe → ICommandManager.ProcessCommand()");
-        commands.ProcessCommand($"/p {payload}");
-        return true;
-    }
-
-    private static string PrepareOutbound(string text, bool asciiOnly)
-    {
-        if (!asciiOnly) return text;
-        var sb = new StringBuilder(text.Length);
-        foreach (var ch in text)
+        public ChatPipe(Configuration config, IPluginLog log, IChatGui chat, IFramework framework, ChatTwoBridge? chatTwo = null)
         {
-            sb.Append(ch <= 0x7F ? ch : '?');
+            this.config = config ?? throw new ArgumentNullException(nameof(config));
+            this.log = log ?? throw new ArgumentNullException(nameof(log));
+            this.native = new NativeChatPipe(config, chat);
+            this.dispatcher = new OutboundDispatcher(framework, native);
+            this.chatTwo = chatTwo;
         }
-        return sb.ToString();
+
+        public void SendSay(string text)
+        {
+            if (chatTwo is not null && chatTwo.IsAvailable && chatTwo.CanSend("say"))
+                dispatcher.EnqueueRaw("/say " + (text ?? string.Empty));
+            else
+                dispatcher.EnqueueSay(text ?? string.Empty);
+        }
+
+        public void SendParty(string text)
+        {
+            if (chatTwo is not null && chatTwo.IsAvailable && chatTwo.CanSend("party"))
+                dispatcher.EnqueueRaw("/p " + (text ?? string.Empty));
+            else
+                dispatcher.EnqueueParty(text ?? string.Empty);
+        }
+
+        public void SendRaw(string line) => dispatcher.EnqueueRaw(line ?? string.Empty);
+
+        public void Dispose() => dispatcher.Dispose();
     }
 }

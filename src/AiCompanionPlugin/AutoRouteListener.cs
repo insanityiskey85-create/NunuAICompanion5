@@ -1,49 +1,98 @@
-﻿using System;
+﻿// SPDX-License-Identifier: MIT
+// AiCompanionPlugin - AutoRouteListener.cs
+
+#nullable enable
+using System;
+using System.Collections.Generic;
 using System.Linq;
-using Dalamud.Plugin.Services;
-using Dalamud.Game.Text;
-using Dalamud.Game.Text.SeStringHandling;
 
-namespace AiCompanionPlugin;
-
-public sealed class AutoRouteListener : IDisposable
+namespace AiCompanionPlugin
 {
-    private readonly IPluginLog log;
-    private readonly IChatGui chat;
-    private readonly Configuration config;
-
-    public AutoRouteListener(IPluginLog log, IChatGui chat, Configuration config)
+    /// <summary>
+    /// Listens for incoming chat lines and conditionally routes them to the AI
+    /// based on channel-specific triggers and optional whitelists.
+    /// 
+    /// This class is deliberately decoupled from a specific Plugin class:
+    /// pass in a router delegate to avoid depending on Plugin.RouteIncoming.
+    /// </summary>
+    public sealed class AutoRouteListener
     {
-        this.log = log;
-        this.chat = chat;
-        this.config = config;
-        this.chat.ChatMessage += OnChatMessage;
-        log.Information("[AutoRoute] listener armed");
-    }
+        private readonly Configuration config;
 
-    public void Dispose() => this.chat.ChatMessage -= OnChatMessage;
+        /// <summary>
+        /// Signature: router(channel, sender, message)
+        /// channel: e.g., "say" or "party"
+        /// sender: character name
+        /// message: message content (raw)
+        /// </summary>
+        private readonly Action<string, string, string> router;
 
-    private void OnChatMessage(XivChatType type, int timestamp, ref SeString sender, ref SeString message, ref bool isHandled)
-    {
-        if (!(type == XivChatType.Say || type == XivChatType.Party))
-            return;
-
-        var text = message.TextValue?.Trim() ?? string.Empty;
-        var name = sender.TextValue?.Trim() ?? string.Empty;
-        if (string.IsNullOrEmpty(text) || string.IsNullOrEmpty(name))
-            return;
-
-        var trigger = type == XivChatType.Say ? config.SayTrigger : config.PartyTrigger;
-        if (string.IsNullOrWhiteSpace(trigger)) return;
-        if (!text.StartsWith(trigger, StringComparison.OrdinalIgnoreCase)) return;
-
-        if (config.RequireWhitelist)
+        public AutoRouteListener(Configuration config, Action<string, string, string> router)
         {
-            var list = type == XivChatType.Say ? (config.SayWhitelist ?? Array.Empty<string>()) : (config.PartyWhitelist ?? Array.Empty<string>());
-            if (!list.Any(w => string.Equals(w?.Trim(), name, StringComparison.Ordinal)))
-                return;
+            this.config = config ?? throw new ArgumentNullException(nameof(config));
+            this.router = router ?? throw new ArgumentNullException(nameof(router));
         }
 
-        Plugin.RouteIncoming(type, name, text.Substring(trigger.Length).Trim());
+        /// <summary>
+        /// Feed chat messages into this from your ChatGui event handler.
+        /// Example channel values: "say", "party", etc.
+        /// </summary>
+        public void OnChatMessage(string channel, string sender, string message)
+        {
+            if (string.IsNullOrEmpty(channel) || string.IsNullOrEmpty(message))
+                return;
+
+            channel = channel.Trim().ToLowerInvariant();
+            sender = sender?.Trim() ?? string.Empty;
+            message = message.Trim();
+
+            switch (channel)
+            {
+                case "say":
+                    if (MatchesTrigger(message, config.SayTrigger) &&
+                        PassesWhitelist(sender, config.RequireWhitelist, config.SayWhitelist))
+                    {
+                        router("say", sender, message);
+                    }
+                    break;
+
+                case "party":
+                    if (MatchesTrigger(message, config.PartyTrigger) &&
+                        PassesWhitelist(sender, config.RequireWhitelist, config.PartyWhitelist))
+                    {
+                        router("party", sender, message);
+                    }
+                    break;
+
+                default:
+                    // Not handled; ignore silently
+                    break;
+            }
+        }
+
+        private static bool MatchesTrigger(string message, string trigger)
+        {
+            // Empty trigger means "no special token required" (always match).
+            if (string.IsNullOrWhiteSpace(trigger))
+                return true;
+
+            return message.IndexOf(trigger, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static bool PassesWhitelist(string sender, bool requireWhitelist, List<string> whitelist)
+        {
+            if (!requireWhitelist)
+                return true;
+
+            if (string.IsNullOrWhiteSpace(sender))
+                return false;
+
+            if (whitelist == null || whitelist.Count == 0)
+                return false;
+
+            return whitelist.Any(n =>
+                n != null &&
+                sender.Equals(n.Trim(), StringComparison.OrdinalIgnoreCase));
+        }
     }
 }

@@ -1,52 +1,85 @@
-﻿using System;
-using System.Collections.Concurrent;
+﻿// SPDX-License-Identifier: MIT
+// AiCompanionPlugin - OutboundDispatcher.cs
+//
+// Rate-limited dispatcher that pumps queued chat sends on IFramework.Update.
+// Uses a uniquely named handler (OnFrameworkTick) and method-group wiring;
+// there are ZERO parentheses on event add/remove to avoid any bool/IFramework confusion.
+
+#nullable enable
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
 using Dalamud.Plugin.Services;
 
-namespace AiCompanionPlugin;
-
-/// <summary>
-/// Queues outbound chat actions and executes them on Framework.Update
-/// with a minimum interval to avoid flood/hitches.
-/// </summary>
-internal sealed class OutboundDispatcher : IDisposable
+namespace AiCompanionPlugin
 {
-    private readonly IFramework _framework;
-    private readonly IPluginLog _log;
-    private readonly ConcurrentQueue<Action> _queue = new();
-    private long _lastTick;
-    private bool _subscribed;
-
-    public int MinIntervalMs { get; set; } = 250;
-
-    public OutboundDispatcher(IFramework framework, IPluginLog log)
+    public sealed class OutboundDispatcher : IDisposable
     {
-        _framework = framework;
-        _log = log;
-        _framework.Update += OnUpdate;
-        _subscribed = true;
-    }
+        private readonly IFramework framework;
+        private readonly NativeChatPipe pipe;
 
-    public void Enqueue(Action action) => _queue.Enqueue(action);
+        private readonly Queue<Func<bool>> work = new();
 
-    private void OnUpdate(IFramework _)
-    {
-        var now = Environment.TickCount64;
-        if (now - _lastTick < MinIntervalMs) return;
+        // Minimum milliseconds between sends
+        private readonly int minMillisBetweenSends;
+        private long lastSendMillis;
 
-        if (_queue.TryDequeue(out var a))
+        private bool disposed;
+
+        /// <summary>
+        /// Create a dispatcher and hook the framework update.
+        /// </summary>
+        /// <param name="framework">Dalamud IFramework service.</param>
+        /// <param name="pipe">Sender that posts to chat.</param>
+        /// <param name="maxMessagesPerSecond">Messages per second cap (>=1). If <= 0, defaults to 750ms spacing.</param>
+        public OutboundDispatcher(IFramework framework, NativeChatPipe pipe, int maxMessagesPerSecond = 1)
         {
-            try { a(); }
-            catch (Exception ex) { _log.Error(ex, "[OutboundDispatcher] task failed"); }
-            finally { _lastTick = now; }
+            this.framework = framework ?? throw new ArgumentNullException(nameof(framework));
+            this.pipe = pipe ?? throw new ArgumentNullException(nameof(pipe));
+
+            if (maxMessagesPerSecond <= 0)
+                minMillisBetweenSends = 750;
+            else
+                minMillisBetweenSends = Math.Max(50, 1000 / maxMessagesPerSecond);
+
+            lastSendMillis = UtcNowMillis() - minMillisBetweenSends; // allow immediate first send
+
+            // ✅ METHOD GROUP — DO NOT ADD PARENTHESES
+            this.framework.Update += OnFrameworkTick;
         }
-    }
 
-    public void Dispose()
-    {
-        if (!_subscribed) return;
-        _framework.Update -= OnUpdate;
-        _subscribed = false;
+        private void OnFrameworkTick(IFramework framework) => throw new NotImplementedException();
 
-        while (_queue.TryDequeue(out _)) { }
+        /// <summary>Queue a /say message.</summary>
+        public void EnqueueSay(string text)
+        {
+            lock (work) work.Enqueue(() => pipe.SendSay(text));
+        }
+
+        /// <summary>Queue a /party message.</summary>
+        public void EnqueueParty(string text)
+        {
+            lock (work) work.Enqueue(() => pipe.SendParty(text));
+        }
+
+        /// <summary>Queue a raw line (command or chat).</summary>
+        public void EnqueueRaw(string line)
+        {
+            lock (work) work.Enqueue(() => pipe.SendRaw(line));
+        }
+
+        private static long UtcNowMillis()
+            => (long)(Stopwatch.GetTimestamp() * 1000.0 / Stopwatch.Frequency);
+
+        public void Dispose()
+        {
+            if (disposed) return;
+            disposed = true;
+
+            // ✅ METHOD GROUP — DO NOT ADD PARENTHESES
+            this.framework.Update -= OnFrameworkTick;
+
+            lock (work) work.Clear();
+        }
     }
 }

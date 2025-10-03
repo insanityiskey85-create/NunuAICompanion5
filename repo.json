@@ -1,25 +1,25 @@
 [
   {
-    "Author": "insanityiskey85",
+    "Author": "The Real Nunu",
     "Name": "AI Companion",
-    "InternalName": "AiCompanionPlugin",
-    "AssemblyVersion": "1.0.1.8",
     "Punchline": "Isolated AI chat companion window.",
-    "Description": "Private AI chat window. No chat hooks. Persona via persona.txt. Theme presets, memories.json, and Eternal Encore chronicle.",
+    "Description": "Private AI chat window. No chat hooks unless explicitly enabled (Party/Say with trigger + whitelist). Persona via persona.txt. Theme presets, memories.json, and Eternal Encore chronicle.",
+    "InternalName": "AiCompanionPlugin",
+    "AssemblyVersion": "1.0.1.9",
+    "TestingAssemblyVersion": "1.0.1.9",
+    "RepoUrl": "https://github.com/insanityiskey85-create/NunuAICompanion5",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 13,
-    "RepoUrl": "https://github.com/insanityiskey85-create/NunuAICompanion5",
-    "Tags": ["AI", "chat", "companion"],
-    "CategoryTags": ["utility"],
-    "DownloadLinkInstall": "https://github.com/insanityiskey85-create/NunuAICompanion5/releases/download/v1.0.1.8/AiCompanionPlugin.zip",
-    "DownloadLinkUpdate": "https://github.com/insanityiskey85-create/NunuAICompanion5/releases/download/v1.0.1.8/AiCompanionPlugin.zip",
-    "DownloadLinkTesting": "https://github.com/insanityiskey85-create/NunuAICompanion5/releases/download/v1.0.1.8/AiCompanionPlugin.zip",
+    "DownloadLinkInstall": "https://github.com/insanityiskey85-create/NunuAICompanion5/releases/download/v1.0.1.9/AiCompanionPlugin_v1.0.1.9.zip",
+    "DownloadLinkUpdate": "https://github.com/insanityiskey85-create/NunuAICompanion5/releases/download/v1.0.1.9/AiCompanionPlugin_v1.0.1.9.zip",
+    "DownloadLinkTesting": "https://github.com/insanityiskey85-create/NunuAICompanion5/releases/download/v1.0.1.9/AiCompanionPlugin_v1.0.1.9.zip",
+    "Changelog": "v1.0.1.9 — Added safe queued dispatcher for outbound chat (Say/Party), fixed API 13 chat listener signature, ASCII-safe network option, and persona/theme toggles.",
+    "ImageUrls": [],
     "IconUrl": "https://raw.githubusercontent.com/insanityiskey85-create/NunuAICompanion5/master/WOW.png",
-    "ImageUrls": "null",
-    "Changelog": "v1.0.1.8 —18th public release.",
-    "LoadPriority": 0,
-    "AcceptsFeedback": false,
-    "IsHide": false
+    "Tags": [ "ai", "companion", "chat", "ffxiv", "isolated", "dalamud" ],
+    "CategoryTags": [ "UI" ],
+    "IsHide": false,
+    "IsTestingExclusive": false,
+    "LoadPriority": 0
   }
 ]
-

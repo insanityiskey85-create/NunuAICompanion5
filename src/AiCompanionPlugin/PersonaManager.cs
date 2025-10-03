@@ -15,6 +15,8 @@ public sealed class PersonaManager : System.IDisposable
         ? DefaultSystemPrompt
         : config.SystemPromptOverride;
 
+    public object PersonaText { get; internal set; }
+
     public static readonly string DefaultSystemPrompt =
         "You are AI Nunu, a helpful, strictly isolated FFXIV companion.\n" +
         "You exist only in this private window. Do not read or write to game chat.\n" +
@@ -25,6 +27,10 @@ public sealed class PersonaManager : System.IDisposable
         this.pi = pi; this.log = log; this.config = config;
         EnsurePersonaFile();
         StartWatcher();
+    }
+
+    public PersonaManager()
+    {
     }
 
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]

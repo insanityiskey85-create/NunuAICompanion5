@@ -1,91 +1,133 @@
+// File: src/AiCompanionPlugin/Plugin.cs
+#nullable enable
 using System;
-using Dalamud.Game.Command;
-using Dalamud.Game.Text;
-using Dalamud.Interface.Windowing;
-using Dalamud.IoC;
 using Dalamud.Plugin;
+using Dalamud.Interface.Windowing;
 using Dalamud.Plugin.Services;
 
-namespace AiCompanionPlugin;
-
-public sealed class Plugin : IDalamudPlugin
+namespace AiCompanionPlugin
 {
-    public string Name => "AI Companion";
-
-    [PluginService] internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
-    [PluginService] internal static ICommandManager CommandManager { get; private set; } = null!;
-    [PluginService] internal static IFramework Framework { get; private set; } = null!;
-    [PluginService] internal static IPluginLog PluginLog { get; private set; } = null!;
-    [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
-
-    private readonly WindowSystem windowSystem = new("AI Companion");
-    private readonly Configuration config;
-    private readonly PersonaManager personaManager;
-    private readonly AiClient aiClient;
-    private readonly ChatWindow chatWindow;
-    private readonly SettingsWindow settingsWindow;
-
-    private const string Command = "/aic";
-
-    public Plugin()
+    public sealed class Plugin : IDalamudPlugin, IDisposable
     {
-        // Load config
-        this.config = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
-        this.config.Initialize(PluginInterface);
+        public string Name => "AI Companion";
 
-        // Persona / AI
-        this.personaManager = new PersonaManager(PluginInterface, PluginLog, config);
-        this.aiClient = new AiClient(PluginLog, config, personaManager);
+        // -------- Dalamud Services (property-injected) --------
+        [PluginService] internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
+        [PluginService] internal static IPluginLog Log { get; private set; } = null!;
+        [PluginService] internal static ICommandManager Commands { get; private set; } = null!;
+        [PluginService] internal static IFramework Framework { get; private set; } = null!;
+        [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
+        [PluginService] internal static Dalamud.Interface.IUiBuilder UiBuilder { get; private set; } = null!;
 
-        // Settings window
-        this.settingsWindow = new SettingsWindow(config, personaManager);
+        // -------- Windows/System --------
+        private readonly WindowSystem windowSystem = new("AI Companion");
+        private SettingsWindow settingsWindow = null!;
+        private ChatWindow chatWindow = null!;
+        private ChronicleWindow chronicleWindow = null!;
+        private MemoriesWindow memoriesWindow = null!;
 
-        // Chat window (pass a callback that opens settings)
-        this.chatWindow = new ChatWindow(
-            PluginLog,
-            aiClient,
-            config,
-            personaManager,
-            openSettings: () => this.settingsWindow.Show()
-        );
+        // -------- Core managers --------
+        private Configuration config = null!;
+        private PersonaManager persona = null!;
+        private MemoryManager memory = null!;
+        private ChronicleManager chronicle = null!;
+        private AiClient client = null!;
 
-        windowSystem.AddWindow(chatWindow);
-        windowSystem.AddWindow(settingsWindow);
+        // -------- Chat & listeners --------
+        private ChatPipe? chatPipe;
+        private AutoRouteListener? autoRouter;
+        private SayListener? sayListener;
+        private PartyListener? partyListener;
 
-        // UI integration
-        PluginInterface.UiBuilder.Draw += DrawUi;
-        PluginInterface.UiBuilder.OpenConfigUi += OpenSettingsWindow;
-
-        // Command
-        CommandManager.AddHandler(Command, new CommandInfo(OnCommand)
+        public Plugin()
         {
-            HelpMessage = "Open AI Companion chat window"
-        });
+            // Load or create config
+            config = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
+            config.Initialize(PluginInterface);
+            config.UpgradeIfNeeded();
+            PluginInterface.SavePluginConfig(config);
+
+            // Core managers (NOTE: these classes must be defined in their own files —
+            // do not define them inside Plugin.cs)
+            persona = new PersonaManager(PluginInterface, Log);
+            memory = new MemoryManager(PluginInterface, Log, config);
+            chronicle = new ChronicleManager(PluginInterface, Log, config);
+            client = new AiClient(Log, config, persona, memory);
+
+            // Chat pipe + listeners
+            chatPipe = new ChatPipe(Commands, Log, Framework, ChatGui, PluginInterface, config);
+            autoRouter = new AutoRouteListener(Log, ChatGui, config, chatPipe, client);
+            sayListener = new SayListener(Log, ChatGui, config, chatPipe, client);
+            partyListener = new PartyListener(Log, ChatGui, config, chatPipe, client);
+
+            // Windows
+            settingsWindow = new SettingsWindow(config, persona, memory, chronicle, client, chatPipe);
+            chatWindow = new ChatWindow(Log, client, config, persona, memory, chronicle, chatPipe);
+            chronicleWindow = new ChronicleWindow(config, chronicle);
+            memoriesWindow = new MemoriesWindow(config, memory);
+
+            windowSystem.AddWindow(settingsWindow);
+            windowSystem.AddWindow(chatWindow);
+            windowSystem.AddWindow(chronicleWindow);
+            windowSystem.AddWindow(memoriesWindow);
+
+            // Draw hooks
+            UiBuilder.Draw += DrawUI;
+            UiBuilder.OpenConfigUi += OpenConfigUi;
+
+            // Commands
+            Commands.AddHandler("/nunu", new()
+            {
+                HelpMessage = "Open AI Companion chat window",
+                ShowInHelp = true,
+                Handler = (_, _) => chatWindow.IsOpen = true
+            });
+
+            Commands.AddHandler("/nunuconfig", new()
+            {
+                HelpMessage = "Open AI Companion settings",
+                ShowInHelp = true,
+                Handler = (_, _) => settingsWindow.IsOpen = true
+            });
+
+            Log.Information("[AI Companion] Initialized.");
+        }
+
+        private void DrawUI()
+        {
+            windowSystem.Draw();
+        }
+
+        private void OpenConfigUi()
+        {
+            settingsWindow.IsOpen = true;
+        }
+
+        public void Dispose()
+        {
+            try
+            {
+                UiBuilder.Draw -= DrawUI;
+                UiBuilder.OpenConfigUi -= OpenConfigUi;
+
+                Commands.RemoveHandler("/nunu");
+                Commands.RemoveHandler("/nunuconfig");
+
+                autoRouter?.Dispose();
+                sayListener?.Dispose();
+                partyListener?.Dispose();
+                chatPipe?.Dispose();
+
+                windowSystem.RemoveAllWindows();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "[AI Companion] Dispose exception");
+            }
+        }
     }
 
-    private void OnCommand(string command, string args)
+    internal class PluginServiceAttribute : Attribute
     {
-        chatWindow.Show();
     }
-
-    private void OpenSettingsWindow()
-    {
-        settingsWindow.Show();
-    }
-
-    private void DrawUi() => windowSystem.Draw();
-
-    public void Dispose()
-    {
-        CommandManager.RemoveHandler(Command);
-        PluginInterface.UiBuilder.Draw -= DrawUi;
-        PluginInterface.UiBuilder.OpenConfigUi -= OpenSettingsWindow;
-
-        windowSystem.RemoveAllWindows();
-
-        aiClient.Dispose();
-        personaManager.Dispose();
-    }
-
-    internal static void RouteIncoming(XivChatType type, string name, string v) => throw new NotImplementedException();
 }

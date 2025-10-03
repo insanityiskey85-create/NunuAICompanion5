@@ -1,5 +1,6 @@
 using System;
 using Dalamud.Game.Command;
+using Dalamud.Game.Text;
 using Dalamud.Interface.Windowing;
 using Dalamud.IoC;
 using Dalamud.Plugin;
@@ -85,4 +86,6 @@ public sealed class Plugin : IDalamudPlugin
         aiClient.Dispose();
         personaManager.Dispose();
     }
+
+    internal static void RouteIncoming(XivChatType type, string name, string v) => throw new NotImplementedException();
 }

@@ -108,12 +108,19 @@ public sealed class AutoRouteListener : IDisposable
                 await pipe.SendToAsync(route, echo, cts.Token, addPrefix: false).ConfigureAwait(false);
             }
 
+            // Replace the header build lines inside RespondStreamAsync(...)
             var ai = string.IsNullOrWhiteSpace(cfg.AiDisplayName) ? "AI Nunu" : cfg.AiDisplayName;
             var replyFmt = GetAiReplyFormat(route);
-            var header = (replyFmt ?? "{ai} -> {caller}: {reply}")
+            var arrow = cfg.UseAsciiHeaders ? "->" : "→";
+
+            // Force ASCII arrow if chosen; minimal string replace
+            var headerTemplate = (replyFmt ?? "{ai} -> {caller}: {reply}")
+                .Replace("→", arrow)
                 .Replace("{ai}", ai)
                 .Replace("{caller}", caller)
                 .Replace("{reply}", string.Empty);
+            var header = headerTemplate;
+
 
             var tokens = client.ChatStreamAsync(new List<ChatMessage>(), $"Caller: {caller}\n\n{prompt}", cts.Token);
             var ok = await pipe.SendStreamingToAsync(route, tokens, header, cts.Token).ConfigureAwait(false);

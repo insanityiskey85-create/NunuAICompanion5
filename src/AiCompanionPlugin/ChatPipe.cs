@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -11,9 +12,8 @@ namespace AiCompanionPlugin;
 public enum ChatRoute { Party, Say }
 
 /// <summary>
-/// Outbound router to /party or /say using ICommandManager.ProcessCommand.
-/// All sends are marshalled to the framework (game) thread.
-/// Supports normal and streaming sends. Safe no-throw if route is disabled.
+/// Outbound router to /party or /say. Tries reflective ChatGui.SendChat/SendMessage first,
+/// then falls back to ICommandManager.ProcessCommand. Everything runs on framework thread.
 /// </summary>
 public sealed class ChatPipe
 {
@@ -21,7 +21,11 @@ public sealed class ChatPipe
     private readonly IPluginLog log;
     private readonly Configuration config;
     private readonly IFramework framework;
-    private readonly IChatGui chat; // for optional debug echo
+    private readonly IChatGui chat;
+
+    // reflective method handles (cached)
+    private readonly MethodInfo? sendChat;
+    private readonly MethodInfo? sendMessage;
 
     public ChatPipe(ICommandManager commands, IPluginLog log, Configuration config, IFramework framework, IChatGui chat)
     {
@@ -30,68 +34,61 @@ public sealed class ChatPipe
         this.config = config;
         this.framework = framework;
         this.chat = chat;
+
+        // Try to discover a direct send method on ChatGui (API variants differ).
+        var implType = chat.GetType();
+        sendChat = implType.GetMethod("SendChat", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, new Type[] { typeof(string) });
+        sendMessage = implType.GetMethod("SendMessage", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, new Type[] { typeof(string) });
+        if (sendChat != null) log.Info("ChatPipe: using ChatGui.SendChat for outbound messages.");
+        else if (sendMessage != null) log.Info("ChatPipe: using ChatGui.SendMessage for outbound messages.");
+        else log.Info("ChatPipe: no direct ChatGui send method found; will use ProcessCommand.");
     }
 
-    private (string cmdPrefix, int chunk, int delay, int flushChars, int flushMs, bool enabled, string aiPrefix) GetRouteParams(ChatRoute route)
+    private (string cmdPrefix, int chunk, int delay, int flushChars, int flushMs, bool enabled, string aiPrefix, string arrow) GetRouteParams(ChatRoute route)
     {
         var aiPrefix = string.IsNullOrWhiteSpace(config.AiDisplayName) ? "[AI Nunu] " : $"[{config.AiDisplayName}] ";
+        var arrow = config.UseAsciiHeaders ? "->" : "→";
         return route switch
         {
             ChatRoute.Party => ("/party ", Math.Max(64, config.PartyChunkSize), Math.Max(200, config.PartyPostDelayMs),
                                 Math.Max(40, config.PartyStreamFlushChars), Math.Max(300, config.PartyStreamMinFlushMs),
-                                config.EnablePartyPipe, aiPrefix),
+                                config.EnablePartyPipe, aiPrefix, arrow),
             ChatRoute.Say => ("/say ", Math.Max(64, config.SayChunkSize), Math.Max(200, config.SayPostDelayMs),
                                 Math.Max(40, config.SayStreamFlushChars), Math.Max(300, config.SayStreamMinFlushMs),
-                                config.EnableSayPipe, aiPrefix),
-            _ => ("/say ", 440, 800, 180, 600, false, aiPrefix),
+                                config.EnableSayPipe, aiPrefix, arrow),
+            _ => ("/say ", 440, 800, 180, 600, false, aiPrefix, arrow),
         };
     }
 
-    /// <summary>
-    /// Send a whole message to the given route (Party/Say), chunked and delayed.
-    /// Returns false if the route is disabled; true if sent.
-    /// </summary>
+    /// <summary>Send a whole message to the route, chunked. Returns false if route disabled.</summary>
     public async Task<bool> SendToAsync(ChatRoute route, string? text, CancellationToken token = default, bool addPrefix = true)
     {
-        var (cmd, chunkSize, delay, _, _, enabled, aiPrefix) = GetRouteParams(route);
-        if (!enabled) { log.Info($"ChatPipe({route}): pipe disabled, skipping send."); return false; }
+        var (cmd, chunkSize, delay, _, _, enabled, aiPrefix, _) = GetRouteParams(route);
+        if (!enabled) { log.Info($"ChatPipe({route}): pipe disabled."); return false; }
         if (string.IsNullOrWhiteSpace(text)) return false;
 
-        var prefix = addPrefix ? aiPrefix : string.Empty;
-        text = text.Replace("\r\n", "\n").Trim();
-
-        var chunks = ChunkSmart(text, chunkSize - prefix.Length);
-        bool first = true;
-
-        foreach (var raw in chunks)
+        var payload = PrepareForNetwork(text, addPrefix ? aiPrefix : string.Empty, chunkSize);
+        foreach (var line in payload)
         {
             token.ThrowIfCancellationRequested();
-            var line = first ? prefix + raw : "…" + raw;
-            first = false;
-
-            await RunOnFrameworkAsync(() => commands.ProcessCommand(cmd + line), token).ConfigureAwait(false);
-            if (config.DebugChatTap) chat.Print($"[AI Companion:{route}] → {line}");
-            log.Info($"ChatPipe({route}) sent {line.Length} chars.");
+            await SendLineAsync(cmd, line, token).ConfigureAwait(false);
             await Task.Delay(delay, token).ConfigureAwait(false);
         }
         return true;
     }
 
-    /// <summary>
-    /// Stream tokens to route with header on first line and continuation thereafter.
-    /// Returns false if the route is disabled; true if streamed.
-    /// </summary>
+    /// <summary>Stream tokens to route with header on first line and continuation thereafter.</summary>
     public async Task<bool> SendStreamingToAsync(ChatRoute route, IAsyncEnumerable<string> tokens, string headerForFirstLine, CancellationToken token = default)
     {
-        var (cmd, chunkSize, delay, flushChars, flushMs, enabled, aiPrefix) = GetRouteParams(route);
-        if (!enabled) { log.Info($"ChatPipe({route}): pipe disabled, skipping stream."); return false; }
+        var (cmd, chunkSize, delay, flushChars, flushMs, enabled, aiPrefix, _) = GetRouteParams(route);
+        if (!enabled) { log.Info($"ChatPipe({route}): pipe disabled."); return false; }
 
         headerForFirstLine ??= string.Empty;
         var firstPrefix = aiPrefix + headerForFirstLine;
         var contPrefix = "…";
 
-        var firstMax = Math.Max(64, chunkSize - firstPrefix.Length);
-        var contMax = Math.Max(64, chunkSize - contPrefix.Length);
+        var firstMax = Math.Max(64, chunkSize - GetVisualLength(firstPrefix));
+        var contMax = Math.Max(64, chunkSize - GetVisualLength(contPrefix));
 
         var sb = new StringBuilder();
         var first = true;
@@ -103,7 +100,7 @@ public sealed class ChatPipe
             sb.Append(t);
 
             var elapsed = Environment.TickCount - lastFlush;
-            var needFlush = sb.Length >= flushChars || elapsed >= flushMs;
+            var needFlush = sb.Length >= Math.Max(40, flushChars) || elapsed >= Math.Max(300, flushMs);
 
             while (needFlush && sb.Length > 0)
             {
@@ -111,29 +108,20 @@ public sealed class ChatPipe
 
                 if (first)
                 {
-                    var take = Math.Min(firstMax, sb.Length);
-                    var chunk = sb.ToString(0, take);
-                    sb.Remove(0, take);
-
-                    await RunOnFrameworkAsync(() => commands.ProcessCommand(cmd + firstPrefix + chunk), token).ConfigureAwait(false);
-                    if (config.DebugChatTap) chat.Print($"[AI Companion:{route}] → {firstPrefix}{chunk}");
+                    var chunk = TakeChunk(sb, firstMax);
+                    await SendLineAsync(cmd, San(firstPrefix) + San(chunk), token).ConfigureAwait(false);
                     first = false;
                 }
                 else
                 {
-                    var take = Math.Min(contMax, sb.Length);
-                    var chunk = sb.ToString(0, take);
-                    sb.Remove(0, take);
-
-                    await RunOnFrameworkAsync(() => commands.ProcessCommand(cmd + contPrefix + chunk), token).ConfigureAwait(false);
-                    if (config.DebugChatTap) chat.Print($"[AI Companion:{route}] → {contPrefix}{chunk}");
+                    var chunk = TakeChunk(sb, contMax);
+                    await SendLineAsync(cmd, San(contPrefix) + San(chunk), token).ConfigureAwait(false);
                 }
 
-                log.Info($"ChatPipe({route}) streamed chunk.");
                 lastFlush = Environment.TickCount;
                 await Task.Delay(delay, token).ConfigureAwait(false);
 
-                needFlush = sb.Length >= flushChars || (Environment.TickCount - lastFlush) >= flushMs;
+                needFlush = sb.Length >= Math.Max(40, flushChars) || (Environment.TickCount - lastFlush) >= Math.Max(300, flushMs);
             }
         }
 
@@ -141,13 +129,10 @@ public sealed class ChatPipe
         while (sb.Length > 0)
         {
             token.ThrowIfCancellationRequested();
-            var take = Math.Min(first ? firstMax : contMax, sb.Length);
-            var chunk = sb.ToString(0, take);
-            sb.Remove(0, take);
-
             var prefix = first ? firstPrefix : contPrefix;
-            await RunOnFrameworkAsync(() => commands.ProcessCommand(cmd + prefix + chunk), token).ConfigureAwait(false);
-            if (config.DebugChatTap) chat.Print($"[AI Companion:{route}] → {prefix}{chunk}");
+            var cap = first ? firstMax : contMax;
+            var chunk = TakeChunk(sb, cap);
+            await SendLineAsync(cmd, San(prefix) + San(chunk), token).ConfigureAwait(false);
             first = false;
             await Task.Delay(delay, token).ConfigureAwait(false);
         }
@@ -155,7 +140,36 @@ public sealed class ChatPipe
         return true;
     }
 
-    // ---------- helpers ----------
+    // ---- core send path (framework thread + reflection) ----
+    private async Task SendLineAsync(string cmdPrefix, string line, CancellationToken token)
+    {
+        var text = line;
+        if (config.NetworkAsciiOnly) text = StripNonAscii(text);
+
+        var full = cmdPrefix + text;
+
+        await RunOnFrameworkAsync(() =>
+        {
+            try
+            {
+                if (sendChat != null) { sendChat.Invoke(chat, new object[] { text.StartsWith("/") ? text : full }); return; }
+                if (sendMessage != null) { sendMessage.Invoke(chat, new object[] { text.StartsWith("/") ? text : full }); return; }
+
+                // fallback to ProcessCommand (requires full command)
+                commands.ProcessCommand(full);
+            }
+            catch (TargetInvocationException ex)
+            {
+                log.Error(ex.InnerException ?? ex, "ChatPipe reflective send failed; falling back to ProcessCommand.");
+                commands.ProcessCommand(full);
+            }
+        }, token).ConfigureAwait(false);
+
+        if (config.DebugChatTap)
+            chat.Print($"[AI Companion:{(cmdPrefix.StartsWith("/party") ? "Party" : "Say")}] → {line}");
+        log.Info($"ChatPipe({(cmdPrefix.StartsWith("/party") ? "Party" : "Say")}) sent {line.Length} chars.");
+    }
+
     private async Task RunOnFrameworkAsync(Action action, CancellationToken token)
     {
         var tcs = new TaskCompletionSource();
@@ -168,19 +182,39 @@ public sealed class ChatPipe
             await tcs.Task.ConfigureAwait(false);
     }
 
+    // ---- chunking + sanitizing helpers ----
+    private IEnumerable<string> PrepareForNetwork(string text, string prefix, int chunkSize)
+    {
+        text = text.Replace("\r\n", "\n").Trim();
+        var chunks = ChunkSmart(text, Math.Max(64, chunkSize - GetVisualLength(prefix)));
+        bool first = true;
+        foreach (var c in chunks)
+        {
+            yield return (first ? prefix : "…") + c;
+            first = false;
+        }
+    }
+
+    private static string TakeChunk(StringBuilder sb, int max)
+    {
+        var take = Math.Min(max, sb.Length);
+        var s = sb.ToString(0, take);
+        sb.Remove(0, take);
+        return s;
+    }
+
+    private static int GetVisualLength(string s) => s?.Length ?? 0;
+
     private static IEnumerable<string> ChunkSmart(string text, int max)
     {
         if (text.Length <= max) { yield return text; yield break; }
-
         var sentences = SplitSentences(text);
         var sb = new StringBuilder();
-
         foreach (var s in sentences)
         {
             if (s.Length > max)
             {
-                foreach (var chunk in ChunkWords(s, max))
-                    yield return chunk;
+                foreach (var w in ChunkWords(s, max)) yield return w;
             }
             else
             {
@@ -208,19 +242,12 @@ public sealed class ChatPipe
             if (w.Length > max)
             {
                 if (sb.Length > 0) { yield return sb.ToString(); sb.Clear(); }
-                int p = 0;
-                while (p < w.Length)
-                {
-                    int take = Math.Min(max, w.Length - p);
-                    yield return w.Substring(p, take);
-                    p += take;
-                }
+                for (int i = 0; i < w.Length; i += max)
+                    yield return w.Substring(i, Math.Min(max, w.Length - i));
             }
             else if (sb.Length + w.Length + 1 > max)
             {
-                yield return sb.ToString();
-                sb.Clear();
-                sb.Append(w);
+                yield return sb.ToString(); sb.Clear(); sb.Append(w);
             }
             else
             {
@@ -239,11 +266,25 @@ public sealed class ChatPipe
         {
             var seg = parts[i].Trim();
             if (seg.Length == 0) continue;
-            if (i < parts.Length - 1 && !t.Contains('\n'))
-                seg += ".";
+            if (i < parts.Length - 1 && !t.Contains('\n')) seg += ".";
             yield return seg;
         }
     }
+
+    private static string StripNonAscii(string input)
+    {
+        var sb = new StringBuilder(input.Length);
+        foreach (var ch in input)
+        {
+            // allow common punctuation and extended ASCII-safe characters; drop others (emojis/arrows)
+            if (ch >= 32 && ch <= 126) sb.Append(ch);
+            else if (ch == '\n') sb.Append(' ');
+            // else drop
+        }
+        return sb.ToString();
+    }
+
+    private static string San(string s) => s == null ? string.Empty : StripNonAscii(s);
 
     internal async Task SendToPartyAsync(string text, CancellationToken token)
     {

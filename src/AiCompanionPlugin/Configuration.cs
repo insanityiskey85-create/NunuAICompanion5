@@ -1,4 +1,4 @@
-using Dalamud.Configuration;
+﻿using Dalamud.Configuration;
 using Dalamud.Plugin;
 using System;
 using System.Collections.Generic;
@@ -42,7 +42,7 @@ public sealed class Configuration : IPluginConfiguration
     public string ChronicleFileRelative { get; set; } = "chronicle.json";
     public string ChronicleStyle { get; set; } = "Canon";
 
-    // PARTY � Pipe & Listener
+    // PARTY — Pipe & Listener
     public bool EnablePartyPipe { get; set; } = false;
     public bool ConfirmBeforePartyPost { get; set; } = true;
     public int PartyChunkSize { get; set; } = 440;
@@ -53,7 +53,7 @@ public sealed class Configuration : IPluginConfiguration
     public List<string> PartyWhitelist { get; set; } = new() { "Your Name Here" };
     public bool PartyAutoReply { get; set; } = true;
 
-    // SAY � Pipe & Listener
+    // SAY — Pipe & Listener
     public bool EnableSayPipe { get; set; } = false;
     public int SayChunkSize { get; set; } = 440;
     public int SayPostDelayMs { get; set; } = 800;
@@ -77,6 +77,10 @@ public sealed class Configuration : IPluginConfiguration
     public int PartyStreamMinFlushMs { get; set; } = 600;
     public int SayStreamFlushChars { get; set; } = 180;
     public int SayStreamMinFlushMs { get; set; } = 600;
+
+    // add near the other settings
+    public bool NetworkAsciiOnly { get; set; } = true;   // strip emojis/non-ASCII before network send
+    public bool UseAsciiHeaders { get; set; } = true;   // use "->" instead of "→" in channel headers
 
     // NEW: Debug/Troubleshooting
     public bool DebugChatTap { get; set; } = true;       // log incoming chat kinds & text

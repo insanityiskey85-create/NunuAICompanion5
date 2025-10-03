@@ -24,6 +24,12 @@ public sealed class ChatWindow : Window
     private readonly StringBuilder responseBuffer = new();
     private CancellationTokenSource? cts;
 
+    // External (routed) context
+    private string lastIncomingSender = string.Empty;
+    private string lastIncomingPrompt = string.Empty;
+    private ChatRoute? lastIncomingRoute = null;
+    private string? pendingReplyForLastIncoming = null;
+
     public ChatWindow(
         IPluginLog log,
         AiClient client,
@@ -44,9 +50,33 @@ public sealed class ChatWindow : Window
 
         SizeConstraints = new WindowSizeConstraints
         {
-            MinimumSize = new Vector2(520, 420),
+            MinimumSize = new Vector2(540, 460),
             MaximumSize = new Vector2(float.MaxValue, float.MaxValue)
         };
+    }
+
+    // ==== External hooks (from AutoRouteListener) ====
+    public void NotifyIncoming(ChatRoute route, string sender, string message)
+    {
+        lastIncomingRoute = route;
+        lastIncomingSender = sender;
+        lastIncomingPrompt = message;
+        pendingReplyForLastIncoming = null;
+
+        history.Add(new ChatMessage("incoming", $"[{route}] {sender}: {message}"));
+        IsOpen = true;
+    }
+
+    public void NotifyProposedReply(ChatRoute route, string sender, string prompt, string reply)
+    {
+        lastIncomingRoute = route;
+        lastIncomingSender = sender;
+        lastIncomingPrompt = prompt;
+        pendingReplyForLastIncoming = reply;
+
+        // Show proposed reply in the local transcript (not sent to game yet)
+        history.Add(new ChatMessage("assistant", reply));
+        IsOpen = true;
     }
 
     public override void Draw()
@@ -54,15 +84,18 @@ public sealed class ChatWindow : Window
         try
         {
             // Transcript
-            ImGui.BeginChild("chat-scroll", new Vector2(0, -100), true);
+            ImGui.BeginChild("chat-scroll", new Vector2(0, -130), true);
             for (int i = 0; i < history.Count; i++)
             {
                 var m = history[i];
                 ImGui.PushTextWrapPos();
 
-                var who = m.Role == "assistant"
-                    ? (string.IsNullOrWhiteSpace(config.AiDisplayName) ? "AI Nunu" : config.AiDisplayName)
-                    : "You";
+                string who = m.Role switch
+                {
+                    "assistant" => string.IsNullOrWhiteSpace(config.AiDisplayName) ? "AI Nunu" : config.AiDisplayName,
+                    "incoming" => "From Channel",
+                    _ => "You"
+                };
 
                 ImGui.TextUnformatted($"{who}: {m.Content}");
                 ImGui.PopTextWrapPos();
@@ -80,31 +113,50 @@ public sealed class ChatWindow : Window
             ImGui.EndChild();
 
             // Input & controls
-            ImGui.InputTextMultiline("##input", ref input, 8000, new Vector2(-130, 90));
+            ImGui.InputTextMultiline("##input", ref input, 8000, new Vector2(-230, 100));
             ImGui.SameLine();
-            if (ImGui.BeginChild("controls", new Vector2(120, 90)))
+            if (ImGui.BeginChild("controls", new Vector2(220, 100)))
             {
                 var sending = cts != null;
                 var canSend = !sending && !string.IsNullOrWhiteSpace(input);
 
-                if (ImGui.Button(sending ? "Sending" : "Send", new Vector2(110, 36)) && canSend)
+                if (ImGui.Button(sending ? "Sending" : "Send (isolated)", new Vector2(210, 32)) && canSend)
                 {
                     _ = SendAsync();
                 }
 
                 if (sending)
                 {
-                    if (ImGui.Button("Cancel", new Vector2(110, 36)))
+                    if (ImGui.Button("Cancel", new Vector2(210, 30)))
                         cts?.Cancel();
                 }
                 else
                 {
-                    if (ImGui.Button("Clear", new Vector2(110, 36)))
+                    if (ImGui.Button("Clear Transcript", new Vector2(210, 30)))
                     {
                         history.Clear();
                         responseBuffer.Clear();
+                        pendingReplyForLastIncoming = null;
                     }
                 }
+
+                // Routed reply posting buttons (if we have a proposed reply from listener)
+                if (!string.IsNullOrEmpty(pendingReplyForLastIncoming) && !string.IsNullOrWhiteSpace(lastIncomingSender))
+                {
+                    ImGui.Separator();
+                    var reply = pendingReplyForLastIncoming!;
+                    var aiName = string.IsNullOrWhiteSpace(config.AiDisplayName) ? "AI Nunu" : config.AiDisplayName;
+
+                    if (ImGui.Button($"Post to /say → {lastIncomingSender}", new Vector2(210, 28)))
+                    {
+                        _ = pipe.SendToAsync(ChatRoute.Say, $"{aiName} -> {lastIncomingSender}: {reply}");
+                    }
+                    if (ImGui.Button($"Post to /party → {lastIncomingSender}", new Vector2(210, 28)))
+                    {
+                        _ = pipe.SendToAsync(ChatRoute.Party, $"{aiName} -> {lastIncomingSender}: {reply}");
+                    }
+                }
+
                 ImGui.EndChild();
             }
 
@@ -117,7 +169,7 @@ public sealed class ChatWindow : Window
                 ImGui.SameLine();
                 if (ImGui.Button("Settings")) Plugin.OpenSettingsWindow();
                 ImGui.SameLine();
-                ImGui.TextDisabled("This chat is isolated.");
+                ImGui.TextDisabled("Isolated chat + channel bridge (reply buttons).");
                 ImGui.EndChild();
             }
         }
@@ -148,12 +200,10 @@ public sealed class ChatWindow : Window
                     responseBuffer.Append(token);
                 }
 
-                // finalize assistant message
                 var full = responseBuffer.ToString();
                 history.Add(new ChatMessage("assistant", full));
                 responseBuffer.Clear();
 
-                // memory append
                 if (config.EnableMemory)
                 {
                     var aiNm = string.IsNullOrWhiteSpace(config.AiDisplayName) ? "AI Nunu" : config.AiDisplayName;

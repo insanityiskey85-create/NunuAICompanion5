@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Dalamud.Game.Text;
@@ -10,189 +9,106 @@ using Dalamud.Plugin.Services;
 namespace AiCompanionPlugin;
 
 /// <summary>
-/// Listens to Party and Say. On whitelisted trigger, streams reply back to SAME channel.
-/// Implements the API 13 signature with timestamp.
+/// Listens to /say and /party, filters by trigger + whitelist, asks AI for a reply,
+/// and forwards both the incoming message and the proposed reply into the ChatWindow.
+/// Does NOT auto-post; buttons in ChatWindow allow manual routing.
 /// </summary>
 public sealed class AutoRouteListener : IDisposable
 {
     private readonly IChatGui chat;
     private readonly IPluginLog log;
     private readonly Configuration cfg;
-    private readonly AiClient client;
+    private readonly AiClient ai;
     private readonly ChatPipe pipe;
+    private readonly ChatWindow ui;
 
-    private int debugCount = 0;
+    private long tapCount;
 
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
-    public AutoRouteListener(IChatGui chat, IPluginLog log, Configuration cfg, AiClient client, ChatPipe pipe)
+    public AutoRouteListener(IChatGui chat, IPluginLog log, Configuration cfg, AiClient ai, ChatPipe pipe, ChatWindow ui)
     {
         this.chat = chat;
         this.log = log;
         this.cfg = cfg;
-        this.client = client;
+        this.ai = ai;
         this.pipe = pipe;
+        this.ui = ui;
 
-        // Subscribe with API 13 signature (timestamped)
         chat.ChatMessage += OnChatMessage;
-        log.Info("AutoRouteListener: subscribed to ChatGui.ChatMessage (timestamp signature).");
+        log.Info("[AutoRoute] listener armed");
     }
 
-    // API 13 delegate: (XivChatType type, int timestamp, ref SeString sender, ref SeString message, ref bool isHandled)
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     private void OnChatMessage(XivChatType type, int timestamp, ref SeString sender, ref SeString message, ref bool isHandled)
     {
         try
         {
-            // --- DEBUG TAP ---
-            if (cfg.DebugChatTap && debugCount < Math.Max(10, cfg.DebugChatTapLimit))
-            {
-                debugCount++;
-                log.Info($"[ChatTap #{debugCount}] {type} @{timestamp} Sender='{sender.TextValue}' Msg='{message.TextValue}'");
-            }
-
-            var route = type switch
-            {
-                XivChatType.Party => ChatRoute.Party,
-                XivChatType.Say => ChatRoute.Say,
-                // Some environments may surface cross-party differently; keep a safety alias if needed.
-                _ => (ChatRoute?)null
-            };
+            // Mirror any whitelisted SAY/PARTY messages (trigger-filtered)
+            var route = RouteFrom(type);
             if (route == null) return;
 
-            if (!IsListenerEnabled(route.Value)) return;
+            var rawSender = sender?.TextValue ?? string.Empty; // e.g., "Nunubu Nubu"
+            var rawMessage = message?.TextValue ?? string.Empty;
 
-            if (!IsPipeEnabled(route.Value))
+            // basic pass-through: if no trigger configured, bail
+            var trigger = route == ChatRoute.Party ? cfg.PartyTrigger : cfg.SayTrigger;
+            if (string.IsNullOrWhiteSpace(trigger)) return;
+            if (!rawMessage.Contains(trigger, StringComparison.Ordinal)) return;
+
+            // whitelist
+            if (cfg.RequireWhitelist)
             {
-                chat.PrintError($"[AI Companion] {RouteName(route.Value)} listener is ON, but its pipe is OFF. Enable it in Settings.");
-                return;
+                var wl = route == ChatRoute.Party ? (cfg.PartyWhitelist ?? new()) : (cfg.SayWhitelist ?? new());
+                if (wl.Count == 0 || !wl.Contains(rawSender, StringComparer.Ordinal))
+                {
+                    if (cfg.DebugChatTap)
+                        chat.Print($"[AI Companion:{route}] Ignored (whitelist). Sender={rawSender}");
+                    return;
+                }
             }
 
-            var senderName = NormalizeName(sender.TextValue);
-            var msg = (message.TextValue ?? string.Empty).Trim();
-            if (string.IsNullOrEmpty(msg)) return;
+            var id = System.Threading.Interlocked.Increment(ref tapCount);
+            if (cfg.DebugChatTap)
+                chat.Print($"[AI Companion:{route}] #{id} {rawSender}: {rawMessage}");
 
-            var trigger = GetTrigger(route.Value);
-            if (string.IsNullOrWhiteSpace(trigger) || !msg.StartsWith(trigger, StringComparison.OrdinalIgnoreCase))
-                return;
+            // show incoming in the UI
+            ui.NotifyIncoming(route.Value, rawSender, rawMessage);
 
-            if (!IsWhitelisted(route.Value, senderName))
+            // Build a lightweight prompt to the AI (strip trigger)
+            var prompt = rawMessage.Replace(trigger, "", StringComparison.Ordinal).Trim();
+            if (string.IsNullOrWhiteSpace(prompt))
+                prompt = "Respond succinctly to the caller.";
+
+            // Ask the AI once (non-streaming here; window offers manual posting after)
+            _ = Task.Run(async () =>
             {
-                log.Info($"AutoRoute: blocked non-whitelisted sender '{sender.TextValue}' on {route}.");
-                return;
-            }
-
-            var prompt = msg.Substring(trigger.Length).TrimStart(':', ' ', '-', '—').Trim();
-            if (string.IsNullOrWhiteSpace(prompt) || !GetAutoReply(route.Value)) return;
-
-            _ = RespondStreamAsync(route.Value, prompt, senderName);
+                try
+                {
+                    var history = new List<ChatMessage>(); // no prior context; could be extended if desired
+                    var reply = await ai.ChatOnceAsync(history, prompt, CancellationToken.None).ConfigureAwait(false);
+                    ui.NotifyProposedReply(route.Value, rawSender, prompt, reply);
+                }
+                catch (Exception ex)
+                {
+                    log.Error(ex, "[AutoRoute] AI request failed");
+                    ui.NotifyProposedReply(route.Value, rawSender, prompt, $"(error) {ex.Message}");
+                }
+            });
         }
         catch (Exception ex)
         {
-            log.Error(ex, "AutoRouteListener OnChatMessage failed");
-            chat.PrintError("[AI Companion] Chat listener error (see log).");
+            log.Error(ex, "[AutoRoute] OnChatMessage failed");
         }
     }
 
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
-    private async Task RespondStreamAsync(ChatRoute route, string prompt, string caller)
-    {
-        try
+    private static ChatRoute? RouteFrom(XivChatType t) =>
+        t switch
         {
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+            XivChatType.Say => ChatRoute.Say,
+            XivChatType.Party => ChatRoute.Party,
+            _ => null
+        };
 
-            if (GetEchoCaller(route))
-            {
-                var aiName = string.IsNullOrWhiteSpace(cfg.AiDisplayName) ? "AI Nunu" : cfg.AiDisplayName;
-                var echoFmt = GetCallerEchoFormat(route);
-                var echo = (echoFmt ?? "{caller} -> {ai}: {prompt}")
-                    .Replace("{caller}", caller)
-                    .Replace("{ai}", aiName)
-                    .Replace("{prompt}", prompt);
-                await pipe.SendToAsync(route, echo, cts.Token, addPrefix: false).ConfigureAwait(false);
-            }
-
-            // Replace the header build lines inside RespondStreamAsync(...)
-            var ai = string.IsNullOrWhiteSpace(cfg.AiDisplayName) ? "AI Nunu" : cfg.AiDisplayName;
-            var replyFmt = GetAiReplyFormat(route);
-            var arrow = cfg.UseAsciiHeaders ? "->" : "→";
-
-            // Force ASCII arrow if chosen; minimal string replace
-            var headerTemplate = (replyFmt ?? "{ai} -> {caller}: {reply}")
-                .Replace("→", arrow)
-                .Replace("{ai}", ai)
-                .Replace("{caller}", caller)
-                .Replace("{reply}", string.Empty);
-            var header = headerTemplate;
-
-
-            var tokens = client.ChatStreamAsync(new List<ChatMessage>(), $"Caller: {caller}\n\n{prompt}", cts.Token);
-            var ok = await pipe.SendStreamingToAsync(route, tokens, header, cts.Token).ConfigureAwait(false);
-
-            if (!ok)
-                chat.PrintError($"[AI Companion] {RouteName(route)} pipe disabled — cannot reply to trigger here.");
-        }
-        catch (OperationCanceledException) { /* quiet */ }
-        catch (Exception ex)
-        {
-            log.Error(ex, "AutoRouteListener RespondStreamAsync error");
-            chat.PrintError("[AI Companion] Failed to stream reply (see log).");
-        }
-    }
-
-    // ----- per-route config helpers -----
-    private bool IsListenerEnabled(ChatRoute route) =>
-        route == ChatRoute.Party ? cfg.EnablePartyListener :
-        route == ChatRoute.Say ? cfg.EnableSayListener : false;
-
-    private bool IsPipeEnabled(ChatRoute route) =>
-        route == ChatRoute.Party ? cfg.EnablePartyPipe :
-        route == ChatRoute.Say ? cfg.EnableSayPipe : false;
-
-    private string GetTrigger(ChatRoute route) =>
-        route == ChatRoute.Party ? (cfg.PartyTrigger ?? "!AI Nunu") :
-        route == ChatRoute.Say ? (cfg.SayTrigger ?? "!AI Nunu") : "!AI Nunu";
-
-    private bool IsWhitelisted(ChatRoute route, string caller)
-    {
-        var list = route == ChatRoute.Party ? cfg.PartyWhitelist : cfg.SayWhitelist;
-
-        // If RequireWhitelist=false and list empty -> allow everyone (testing)
-        if (!cfg.RequireWhitelist && (list == null || list.Count == 0))
-            return true;
-
-        return (list?.Any() ?? false) && list.Any(w => string.Equals(NormalizeName(w), caller, StringComparison.OrdinalIgnoreCase));
-    }
-
-    private bool GetAutoReply(ChatRoute route) =>
-        route == ChatRoute.Party ? cfg.PartyAutoReply :
-        route == ChatRoute.Say ? cfg.SayAutoReply : false;
-
-    private bool GetEchoCaller(ChatRoute route) =>
-        route == ChatRoute.Party ? cfg.PartyEchoCallerPrompt :
-        route == ChatRoute.Say ? cfg.SayEchoCallerPrompt : false;
-
-    private string GetCallerEchoFormat(ChatRoute route) =>
-        route == ChatRoute.Party ? cfg.PartyCallerEchoFormat :
-        route == ChatRoute.Say ? cfg.SayCallerEchoFormat : "{caller} -> {ai}: {prompt}";
-
-    private string GetAiReplyFormat(ChatRoute route) =>
-        route == ChatRoute.Party ? cfg.PartyAiReplyFormat :
-        route == ChatRoute.Say ? cfg.SayAiReplyFormat : "{ai} -> {caller}: {reply}";
-
-    private static string RouteName(ChatRoute route) => route == ChatRoute.Party ? "Party" : "Say";
-
-    // ----- utils -----
-    private static string NormalizeName(string name)
-    {
-        var n = name ?? string.Empty;
-        var at = n.IndexOf('@'); if (at >= 0) n = n[..at];
-        return string.Join(' ', n.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries));
-    }
-
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "<Pending>")]
     public void Dispose()
     {
         chat.ChatMessage -= OnChatMessage;
-        log.Info("AutoRouteListener: unsubscribed from ChatGui.ChatMessage.");
     }
 }

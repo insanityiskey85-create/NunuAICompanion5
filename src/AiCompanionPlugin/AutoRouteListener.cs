@@ -10,9 +10,8 @@ using Dalamud.Plugin.Services;
 namespace AiCompanionPlugin;
 
 /// <summary>
-/// Listens to multiple channels (currently Party and Say).
-/// When a whitelisted caller posts a message starting with that channel's trigger,
-/// Nunu streams her reply back to the SAME channel.
+/// Listens to Party and Say. On whitelisted trigger, streams reply back to SAME channel.
+/// Now prints a clear hint if the pipe for that channel is disabled.
 /// </summary>
 public sealed class AutoRouteListener : IDisposable
 {
@@ -42,7 +41,6 @@ public sealed class AutoRouteListener : IDisposable
     {
         try
         {
-            // Only handle Party and Say for now
             var route = type switch
             {
                 XivChatType.Party => ChatRoute.Party,
@@ -50,9 +48,14 @@ public sealed class AutoRouteListener : IDisposable
                 _ => (ChatRoute?)null
             };
             if (route == null) return;
-
-            // Load per-route settings
             if (!IsListenerEnabled(route.Value)) return;
+
+            // If the route's pipe is disabled, inform the user once per message—no silent fail.
+            if (!IsPipeEnabled(route.Value))
+            {
+                chat.PrintError($"[AI Companion] {RouteName(route.Value)} listener is on, but its pipe is OFF. Enable it in Settings to allow replies.");
+                return;
+            }
 
             var senderName = NormalizeName(sender.TextValue);
             var msg = (message.TextValue ?? string.Empty).Trim();
@@ -85,7 +88,6 @@ public sealed class AutoRouteListener : IDisposable
         {
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
 
-            // Optional echo of the caller prompt, routed back to same channel
             if (GetEchoCaller(route))
             {
                 var aiName = string.IsNullOrWhiteSpace(cfg.AiDisplayName) ? "AI Nunu" : cfg.AiDisplayName;
@@ -97,7 +99,6 @@ public sealed class AutoRouteListener : IDisposable
                 await pipe.SendToAsync(route, echo, cts.Token, addPrefix: false).ConfigureAwait(false);
             }
 
-            // Header for first streamed line
             var ai = string.IsNullOrWhiteSpace(cfg.AiDisplayName) ? "AI Nunu" : cfg.AiDisplayName;
             var replyFmt = GetAiReplyFormat(route);
             var header = (replyFmt ?? "{ai} -> {caller}: {reply}")
@@ -105,14 +106,17 @@ public sealed class AutoRouteListener : IDisposable
                 .Replace("{caller}", caller)
                 .Replace("{reply}", string.Empty);
 
-            // Stream tokens back to SAME channel
             var tokens = client.ChatStreamAsync(new List<ChatMessage>(), $"Caller: {caller}\n\n{prompt}", cts.Token);
-            await pipe.SendStreamingToAsync(route, tokens, header, cts.Token).ConfigureAwait(false);
+            var ok = await pipe.SendStreamingToAsync(route, tokens, header, cts.Token).ConfigureAwait(false);
+
+            if (!ok)
+                chat.PrintError($"[AI Companion] {RouteName(route)} pipe disabled — cannot reply to trigger here.");
         }
         catch (OperationCanceledException) { /* quiet */ }
         catch (Exception ex)
         {
             log.Error(ex, "AutoRouteListener RespondStreamAsync error");
+            chat.PrintError("[AI Companion] Failed to stream reply (see log).");
         }
     }
 
@@ -120,6 +124,10 @@ public sealed class AutoRouteListener : IDisposable
     private bool IsListenerEnabled(ChatRoute route) =>
         route == ChatRoute.Party ? cfg.EnablePartyListener :
         route == ChatRoute.Say ? cfg.EnableSayListener : false;
+
+    private bool IsPipeEnabled(ChatRoute route) =>
+        route == ChatRoute.Party ? cfg.EnablePartyPipe :
+        route == ChatRoute.Say ? cfg.EnableSayPipe : false;
 
     private string GetTrigger(ChatRoute route) =>
         route == ChatRoute.Party ? (cfg.PartyTrigger ?? "!AI Nunu") :
@@ -146,6 +154,8 @@ public sealed class AutoRouteListener : IDisposable
     private string GetAiReplyFormat(ChatRoute route) =>
         route == ChatRoute.Party ? cfg.PartyAiReplyFormat :
         route == ChatRoute.Say ? cfg.SayAiReplyFormat : "{ai} -> {caller}: {reply}";
+
+    private static string RouteName(ChatRoute route) => route == ChatRoute.Party ? "Party" : "Say";
 
     // ----- utils -----
     private static string NormalizeName(string name)

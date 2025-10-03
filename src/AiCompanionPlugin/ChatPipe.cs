@@ -12,7 +12,7 @@ public enum ChatRoute { Party, Say }
 
 /// <summary>
 /// Outbound router to /p or /s using ICommandManager.ProcessCommand.
-/// Supports normal and streaming sends.
+/// Supports normal and streaming sends. Safe no-throw if route is disabled.
 /// </summary>
 public sealed class ChatPipe
 {
@@ -42,12 +42,15 @@ public sealed class ChatPipe
         };
     }
 
-    /// <summary>Send a whole message to the given route (Party/Say), chunked and delayed.</summary>
-    public async Task SendToAsync(ChatRoute route, string? text, CancellationToken token = default, bool addPrefix = true)
+    /// <summary>
+    /// Send a whole message to the given route (Party/Say), chunked and delayed.
+    /// Returns false if the route is disabled; true if sent.
+    /// </summary>
+    public async Task<bool> SendToAsync(ChatRoute route, string? text, CancellationToken token = default, bool addPrefix = true)
     {
         var (cmd, chunkSize, delay, _, _, enabled, aiPrefix) = GetRouteParams(route);
-        if (!enabled) throw new InvalidOperationException($"{route} pipe is disabled in settings.");
-        if (string.IsNullOrWhiteSpace(text)) return;
+        if (!enabled) { log.Info($"ChatPipe({route}): pipe disabled, skipping send."); return false; }
+        if (string.IsNullOrWhiteSpace(text)) return false;
 
         var prefix = addPrefix ? aiPrefix : string.Empty;
         text = text.Replace("\r\n", "\n").Trim();
@@ -65,13 +68,17 @@ public sealed class ChatPipe
             log.Info($"ChatPipe({route}) sent {line.Length} chars.");
             await Task.Delay(delay, token).ConfigureAwait(false);
         }
+        return true;
     }
 
-    /// <summary>Stream tokens to route with header on first line and continuation thereafter.</summary>
-    public async Task SendStreamingToAsync(ChatRoute route, IAsyncEnumerable<string> tokens, string headerForFirstLine, CancellationToken token = default)
+    /// <summary>
+    /// Stream tokens to route with header on first line and continuation thereafter.
+    /// Returns false if the route is disabled; true if streamed.
+    /// </summary>
+    public async Task<bool> SendStreamingToAsync(ChatRoute route, IAsyncEnumerable<string> tokens, string headerForFirstLine, CancellationToken token = default)
     {
         var (cmd, chunkSize, delay, flushChars, flushMs, enabled, aiPrefix) = GetRouteParams(route);
-        if (!enabled) throw new InvalidOperationException($"{route} pipe is disabled in settings.");
+        if (!enabled) { log.Info($"ChatPipe({route}): pipe disabled, skipping stream."); return false; }
 
         headerForFirstLine ??= string.Empty;
         var firstPrefix = aiPrefix + headerForFirstLine;
@@ -131,6 +138,8 @@ public sealed class ChatPipe
             first = false;
             await Task.Delay(delay, token).ConfigureAwait(false);
         }
+
+        return true;
     }
 
     // ---------- helpers ----------

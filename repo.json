@@ -8,7 +8,7 @@
     "AssemblyVersion": "5.0.0.2",
     "TestingAssemblyVersion": "5.0.0.2",
     "ApplicableVersion": "any",
-    "DalamudApiLevel": 10,
+    "DalamudApiLevel": 13,
     "RepoUrl": "https://github.com/insanityiskey85-create/NunuAICompanion5",
     "IconUrl": "https://raw.githubusercontent.com/insanityiskey85-create/NunuAICompanion5/main/assets/icon.png",
     "ImageUrls": [
@@ -27,3 +27,4 @@
     "DownloadLinkTesting": "https://github.com/insanityiskey85-create/NunuAICompanion5/releases/download/v5.0.0.2/AiCompanionPlugin-v5.0.0.2.zip"
   }
 ]
+

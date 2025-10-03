@@ -12,28 +12,31 @@ namespace AiCompanionPlugin;
 public enum ChatRoute { Party, Say }
 
 /// <summary>
-/// Outbound router to /party or /say. Tries reflective ChatGui.SendChat/SendMessage first,
-/// then falls back to ICommandManager.ProcessCommand. Everything runs on framework thread.
+/// Outbound router to /party or /say. Enqueues actual sends to OutboundDispatcher,
+/// so they occur on a clean Framework tick. Uses direct ChatGui methods if present,
+/// otherwise falls back to ICommandManager.ProcessCommand.
 /// </summary>
 public sealed class ChatPipe
 {
     private readonly ICommandManager commands;
     private readonly IPluginLog log;
     private readonly Configuration config;
-    private readonly IFramework framework;
     private readonly IChatGui chat;
+    private readonly OutboundDispatcher dispatcher;
 
     // reflective method handles (cached)
     private readonly MethodInfo? sendChat;
     private readonly MethodInfo? sendMessage;
+
+    public OutboundDispatcher Dispatcher => dispatcher;
 
     public ChatPipe(ICommandManager commands, IPluginLog log, Configuration config, IFramework framework, IChatGui chat)
     {
         this.commands = commands;
         this.log = log;
         this.config = config;
-        this.framework = framework;
         this.chat = chat;
+        this.dispatcher = new OutboundDispatcher(framework, log) { MinIntervalMs = Math.Max(200, config.SayPostDelayMs / 2) };
 
         // Try to discover a direct send method on ChatGui (API variants differ).
         var implType = chat.GetType();
@@ -44,26 +47,25 @@ public sealed class ChatPipe
         else log.Info("ChatPipe: no direct ChatGui send method found; will use ProcessCommand.");
     }
 
-    private (string cmdPrefix, int chunk, int delay, int flushChars, int flushMs, bool enabled, string aiPrefix, string arrow) GetRouteParams(ChatRoute route)
+    private (string cmdPrefix, int chunk, int delay, int flushChars, int flushMs, bool enabled, string aiPrefix) GetRouteParams(ChatRoute route)
     {
         var aiPrefix = string.IsNullOrWhiteSpace(config.AiDisplayName) ? "[AI Nunu] " : $"[{config.AiDisplayName}] ";
-        var arrow = config.UseAsciiHeaders ? "->" : "→";
         return route switch
         {
             ChatRoute.Party => ("/party ", Math.Max(64, config.PartyChunkSize), Math.Max(200, config.PartyPostDelayMs),
                                 Math.Max(40, config.PartyStreamFlushChars), Math.Max(300, config.PartyStreamMinFlushMs),
-                                config.EnablePartyPipe, aiPrefix, arrow),
+                                config.EnablePartyPipe, aiPrefix),
             ChatRoute.Say => ("/say ", Math.Max(64, config.SayChunkSize), Math.Max(200, config.SayPostDelayMs),
                                 Math.Max(40, config.SayStreamFlushChars), Math.Max(300, config.SayStreamMinFlushMs),
-                                config.EnableSayPipe, aiPrefix, arrow),
-            _ => ("/say ", 440, 800, 180, 600, false, aiPrefix, arrow),
+                                config.EnableSayPipe, aiPrefix),
+            _ => ("/say ", 440, 800, 180, 600, false, aiPrefix),
         };
     }
 
     /// <summary>Send a whole message to the route, chunked. Returns false if route disabled.</summary>
     public async Task<bool> SendToAsync(ChatRoute route, string? text, CancellationToken token = default, bool addPrefix = true)
     {
-        var (cmd, chunkSize, delay, _, _, enabled, aiPrefix, _) = GetRouteParams(route);
+        var (cmd, chunkSize, delay, _, _, enabled, aiPrefix) = GetRouteParams(route);
         if (!enabled) { log.Info($"ChatPipe({route}): pipe disabled."); return false; }
         if (string.IsNullOrWhiteSpace(text)) return false;
 
@@ -80,15 +82,15 @@ public sealed class ChatPipe
     /// <summary>Stream tokens to route with header on first line and continuation thereafter.</summary>
     public async Task<bool> SendStreamingToAsync(ChatRoute route, IAsyncEnumerable<string> tokens, string headerForFirstLine, CancellationToken token = default)
     {
-        var (cmd, chunkSize, delay, flushChars, flushMs, enabled, aiPrefix, _) = GetRouteParams(route);
+        var (cmd, chunkSize, delay, flushChars, flushMs, enabled, aiPrefix) = GetRouteParams(route);
         if (!enabled) { log.Info($"ChatPipe({route}): pipe disabled."); return false; }
 
         headerForFirstLine ??= string.Empty;
         var firstPrefix = aiPrefix + headerForFirstLine;
         var contPrefix = "…";
 
-        var firstMax = Math.Max(64, chunkSize - GetVisualLength(firstPrefix));
-        var contMax = Math.Max(64, chunkSize - GetVisualLength(contPrefix));
+        var firstMax = Math.Max(64, chunkSize - GetLen(firstPrefix));
+        var contMax = Math.Max(64, chunkSize - GetLen(contPrefix));
 
         var sb = new StringBuilder();
         var first = true;
@@ -140,53 +142,69 @@ public sealed class ChatPipe
         return true;
     }
 
-    // ---- core send path (framework thread + reflection) ----
-    private async Task SendLineAsync(string cmdPrefix, string line, CancellationToken token)
+    // ---- core send path (queued to dispatcher) ----
+    private Task SendLineAsync(string cmdPrefix, string line, CancellationToken token)
     {
         var text = line;
         if (config.NetworkAsciiOnly) text = StripNonAscii(text);
 
         var full = cmdPrefix + text;
 
-        await RunOnFrameworkAsync(() =>
+        var tcs = new TaskCompletionSource();
+        Dispatcher.Enqueue(() =>
         {
             try
             {
-                if (sendChat != null) { sendChat.Invoke(chat, new object[] { text.StartsWith("/") ? text : full }); return; }
-                if (sendMessage != null) { sendMessage.Invoke(chat, new object[] { text.StartsWith("/") ? text : full }); return; }
+                // Try direct ChatGui method first
+                if (sendChat != null)
+                {
+                    var arg = text.StartsWith("/") ? text : full;
+                    sendChat.Invoke(chat, new object[] { arg });
+                }
+                else if (sendMessage != null)
+                {
+                    var arg = text.StartsWith("/") ? text : full;
+                    sendMessage.Invoke(chat, new object[] { arg });
+                }
+                else
+                {
+                    commands.ProcessCommand(full);
+                }
 
-                // fallback to ProcessCommand (requires full command)
-                commands.ProcessCommand(full);
+                if (config.DebugChatTap)
+                    chat.Print($"[AI Companion:{(cmdPrefix.StartsWith("/party") ? "Party" : "Say")}] → {line}");
+
+                log.Info($"ChatPipe({(cmdPrefix.StartsWith("/party") ? "Party" : "Say")}) sent {line.Length} chars.");
+                tcs.TrySetResult();
             }
             catch (TargetInvocationException ex)
             {
                 log.Error(ex.InnerException ?? ex, "ChatPipe reflective send failed; falling back to ProcessCommand.");
-                commands.ProcessCommand(full);
+                try
+                {
+                    commands.ProcessCommand(full);
+                    tcs.TrySetResult();
+                }
+                catch (Exception ex2)
+                {
+                    tcs.TrySetException(ex2);
+                }
             }
-        }, token).ConfigureAwait(false);
-
-        if (config.DebugChatTap)
-            chat.Print($"[AI Companion:{(cmdPrefix.StartsWith("/party") ? "Party" : "Say")}] → {line}");
-        log.Info($"ChatPipe({(cmdPrefix.StartsWith("/party") ? "Party" : "Say")}) sent {line.Length} chars.");
-    }
-
-    private async Task RunOnFrameworkAsync(Action action, CancellationToken token)
-    {
-        var tcs = new TaskCompletionSource();
-        framework.RunOnFrameworkThread(() =>
-        {
-            try { action(); tcs.SetResult(); }
-            catch (Exception ex) { tcs.SetException(ex); }
+            catch (Exception ex)
+            {
+                tcs.TrySetException(ex);
+            }
         });
+
         using (token.Register(() => tcs.TrySetCanceled(token)))
-            await tcs.Task.ConfigureAwait(false);
+            return tcs.Task;
     }
 
     // ---- chunking + sanitizing helpers ----
     private IEnumerable<string> PrepareForNetwork(string text, string prefix, int chunkSize)
     {
         text = text.Replace("\r\n", "\n").Trim();
-        var chunks = ChunkSmart(text, Math.Max(64, chunkSize - GetVisualLength(prefix)));
+        var chunks = ChunkSmart(text, Math.Max(64, chunkSize - GetLen(prefix)));
         bool first = true;
         foreach (var c in chunks)
         {
@@ -203,7 +221,7 @@ public sealed class ChatPipe
         return s;
     }
 
-    private static int GetVisualLength(string s) => s?.Length ?? 0;
+    private static int GetLen(string s) => s?.Length ?? 0;
 
     private static IEnumerable<string> ChunkSmart(string text, int max)
     {
@@ -276,15 +294,15 @@ public sealed class ChatPipe
         var sb = new StringBuilder(input.Length);
         foreach (var ch in input)
         {
-            // allow common punctuation and extended ASCII-safe characters; drop others (emojis/arrows)
             if (ch >= 32 && ch <= 126) sb.Append(ch);
             else if (ch == '\n') sb.Append(' ');
-            // else drop
         }
         return sb.ToString();
     }
 
     private static string San(string s) => s == null ? string.Empty : StripNonAscii(s);
+
+    public void Dispose() => Dispatcher.Dispose();
 
     internal async Task SendToPartyAsync(string text, CancellationToken token)
     {

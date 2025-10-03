@@ -38,7 +38,7 @@ public sealed class Plugin : IDalamudPlugin
     private const string CommandParty = "/aiparty";
     private const string CommandSay = "/aisay";
 
-    public Plugin()
+    public Plugin(IDisposable disposable)
     {
         Instance = this;
 
@@ -51,7 +51,10 @@ public sealed class Plugin : IDalamudPlugin
         aiClient = new AiClient(PluginLog, config, personaManager);
         // ... inside Plugin class constructor, replace ChatPipe creation with:
         // replace previous ChatPipe ctor call:
+        // In the constructor (where you build services)
         chatPipe = new ChatPipe(CommandManager, PluginLog, config, Framework, ChatGui);
+        disposable?.Dispose();
+
 
 
         autoListener = new AutoRouteListener(ChatGui, PluginLog, config, aiClient, chatPipe);

@@ -20,10 +20,11 @@
     "IsTestingExclusive": false,
     "AcceptsFeedback": true,
 
-    "DownloadLinkInstall": "https://github.com/your-org/AiCompanionPlugin5/releases/download/v1.0.3.1/AiCompanionPlugin_v1.0.3.2.zip",
-    "DownloadLinkUpdate":  "https://github.com/your-org/AiCompanionPlugin5/releases/download/v1.0.3.1/AiCompanionPlugin_v1.0.3.2.zip",
-    "DownloadLinkTesting": "https://github.com/your-org/AiCompanionPlugin5/releases/download/v1.0.3.1/AiCompanionPlugin_v1.0.3.2.zip"
+    "DownloadLinkInstall": "https://github.com/your-org/AiCompanionPlugin5/releases/download/v1.0.3.2/AiCompanionPlugin_v1.0.3.2.zip",
+    "DownloadLinkUpdate":  "https://github.com/your-org/AiCompanionPlugin5/releases/download/v1.0.3.2/AiCompanionPlugin_v1.0.3.2.zip",
+    "DownloadLinkTesting": "https://github.com/your-org/AiCompanionPlugin5/releases/download/v1.0.3.2/AiCompanionPlugin_v1.0.3.2.zip"
   }
 ]
+
 
 

@@ -1,6 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
-	<!-- ===== Build settings (NET 9 SDK) ===== -->
+	<!-- ===== Build settings (NET 9 / Dalamud 13) ===== -->
 	<PropertyGroup>
 		<TargetFramework>net9.0-windows</TargetFramework>
 		<Nullable>enable</Nullable>
@@ -14,39 +14,34 @@
 
 		<AssemblyName>AiCompanionPlugin</AssemblyName>
 		<RootNamespace>AiCompanionPlugin</RootNamespace>
-		<AssemblyVersion>5.0.0.0</AssemblyVersion>
-		
-		<!-- Don’t list .cs files explicitly (prevents NETSDK1022). -->
-		<!-- <EnableDefaultCompileItems>false</EnableDefaultCompileItems> -->
 
-		<!-- Optional if you target Windows 10+ APIs explicitly -->
-		<!-- <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion> -->
+		<!-- Do not list .cs files explicitly; avoids NETSDK1022 -->
+		<!-- <EnableDefaultCompileItems>false</EnableDefaultCompileItems> -->
 	</PropertyGroup>
 
-	<!-- ===== Choose Dalamud channel once; references follow it ===== -->
+	<!-- ===== Dalamud channel & paths ===== -->
 	<PropertyGroup>
-		<!-- Set to 'dev' or 'stable'. Default is dev. -->
+		<!-- choose dev or stable; default dev -->
 		<DalamudChannel Condition="'$(DalamudChannel)'==''">dev</DalamudChannel>
 		<DalamudHooksDir>$(AppData)\XIVLauncher\addon\Hooks\$(DalamudChannel)\</DalamudHooksDir>
+
+		<!-- Your custom manifest filename -->
+		<PluginManifest>$(ProjectDir)AiCompanionPlugin.json</PluginManifest>
 	</PropertyGroup>
 
-	<!-- ===== Package helpers ===== -->
+	<!-- ===== Packager helper ===== -->
 	<ItemGroup>
 		<PackageReference Include="DalamudPackager" Version="2.1.12" PrivateAssets="All" />
-		<!-- .NET 9 already includes System.Text.Json; omit extra package unless you need a specific version -->
 	</ItemGroup>
 
-	<!-- ===== Dalamud 13.0.0.4 runtime references =====
-       These are file references to the user’s locally installed Dalamud.
-       Make sure your XIVLauncher channel matches $(DalamudChannel).
-       (You don’t set the version here; 13.0.0.4 is the installed DLL version.) -->
+	<!-- ===== Dalamud 13.0.0.4 references ===== -->
 	<ItemGroup>
 		<Reference Include="Dalamud">
 			<HintPath>$(DalamudHooksDir)Dalamud.dll</HintPath>
 			<Private>false</Private>
 		</Reference>
 
-		<!-- Use Dalamud.Bindings.ImGui.dll (NOT ImGui.NET) -->
+		<!-- Using Dalamud.Bindings.ImGui.dll (not ImGui.NET) -->
 		<Reference Include="Dalamud.Bindings.ImGui">
 			<HintPath>$(DalamudHooksDir)Dalamud.Bindings.ImGui.dll</HintPath>
 			<Private>false</Private>
@@ -63,4 +58,27 @@
     <None Include="assets\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   -->
+
+	<!-- ===== Package zip after Release build ===== -->
+	<Target Name="PackagePlugin" AfterTargets="Build"
+			Condition="'$(Configuration)'=='Release' AND Exists('$(PluginManifest)')">
+
+		<!-- Try local dotnet tool first -->
+		<Exec Command="dotnet tool run dalamudpackager -p &quot;$(TargetDir)&quot; -o &quot;$(TargetDir)&quot; -m &quot;$(PluginManifest)&quot; -r &quot;$(MSBuildProjectDirectory)&quot;"
+			  IgnoreExitCode="true">
+			<Output TaskParameter="ExitCode" PropertyName="PackagerExitCode1" />
+		</Exec>
+
+		<!-- Fallback: global PATH -->
+		<Exec Command="dalamudpackager -p &quot;$(TargetDir)&quot; -o &quot;$(TargetDir)&quot; -m &quot;$(PluginManifest)&quot; -r &quot;$(MSBuildProjectDirectory)&quot;"
+			  Condition="'$(PackagerExitCode1)'!='0'"
+			  IgnoreExitCode="true">
+			<Output TaskParameter="ExitCode" PropertyName="PackagerExitCode2" />
+		</Exec>
+
+		<!-- Fail only if both attempts failed -->
+		<Error Condition="'$(PackagerExitCode1)'!='0' AND '$(PackagerExitCode2)'!='0'"
+			   Text="DalamudPackager failed. Ensure the tool is installed and the manifest exists at $(PluginManifest)." />
+	</Target>
+
 </Project>

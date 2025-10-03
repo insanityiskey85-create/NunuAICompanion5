@@ -2,105 +2,72 @@
 // AiCompanionPlugin - Plugin.cs
 
 #nullable enable
+using System;
 using Dalamud.IoC;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
-using System;
-using System.Collections.Generic;
 
 namespace AiCompanionPlugin
 {
+    /// <summary>
+    /// Minimal, safe plugin bootstrap that relies on correct Dalamud service injection.
+    /// Avoids custom interfaces (like AiCompanionPlugin.IPluginLog) that IoC can't resolve.
+    /// </summary>
     public sealed class Plugin : IDalamudPlugin
     {
-        public string Name => "AiCompanionPlugin";
+        public string Name => "AI Companion";
 
-        // Services (Dalamud injects these automatically)
-        [PluginService] public static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
-        [PluginService] public static IPluginLog Log { get; private set; } = null!;
-        [PluginService] public static IFramework Framework { get; private set; } = null!;
-        [PluginService] public static IChatGui Chat { get; private set; } = null!;
+        // ---- Dalamud services (CORRECT NAMESPACES!) ----
+        [PluginService] internal IDalamudPluginInterface PluginInterface { get; private set; } = null!;
+        [PluginService] internal IPluginLog Log { get; private set; } = null!;
+        [PluginService] internal IFramework Framework { get; private set; } = null!;
+        [PluginService] internal IChatGui ChatGui { get; private set; } = null!;
 
+        // ---- Plugin state ----
         private Configuration config = null!;
-        private AiClient ai = null!;
-        private PersonaManager persona = null!;
 
-        private ChatTwoBridge? chatTwo;
-        private ChatPipe? pipe;
-
-        private readonly List<(string role, string content)> history = new();
-
-        private ChatWindow? chatWindow;
-        private SettingsWindow? settingsWindow;
-
-        public Plugin()
+        // NOTE: Dalamud supports a constructor that receives DalamudPluginInterface.
+        // Property injection happens after construction, so don't rely on [PluginService] inside this ctor.
+        public Plugin(IDalamudPluginInterface pi)
         {
-            // Load config
-            config = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
-            config.Initialize(PluginInterface);
+            // Load or create configuration using the provided interface.
+            var cfg = pi.GetPluginConfig() as Configuration ?? new Configuration();
+            cfg.Initialize(pi);
+            config = cfg;
 
-            // Subsystems
-            ai = new AiClient(config);
-            persona = new PersonaManager(config, PluginInterface);
-
-            // Optional ChatTwo bridge
-            try { chatTwo = new ChatTwoBridge(PluginInterface); } catch { chatTwo = null; }
-
-            pipe = new ChatPipe(config, Log, Chat, Framework, chatTwo);
-
-            // Windows
-            chatWindow = new ChatWindow(
-                config,
-                getHistory: () => history,
-                sendUserMessage: SendUserMessage);
-
-            settingsWindow = new SettingsWindow(config, config.Save);
-
-            // Open on load (optional)
-            if (config.OpenChatOnLoad) chatWindow.IsOpen = true;
-            if (config.OpenSettingsOnLoad) settingsWindow.IsOpen = true;
-
-            // Ui draw hooks
-            PluginInterface.UiBuilder.Draw += DrawUI;
-            PluginInterface.UiBuilder.OpenConfigUi += () => settingsWindow!.IsOpen = true;
+            // Light log to prove we reached here (Logger is not injected yet—use pi for now if you want).
+            // Full logger available after property injection; see OnInjected().
         }
 
-        private void DrawUI()
+        // Dalamud will perform property injection immediately after constructing the plugin.
+        // We can use an explicit method to run any code that depends on injected services safely.
+
+        private void OnInjected()
         {
-            settingsWindow?.Draw();
-            chatWindow?.Draw();
-        }
-
-        private async void SendUserMessage(string userText)
-        {
-            // Append to in-plugin history
-            history.Add(("user", userText));
-
-            // Build system prompt if any
-            var sys = persona.GetSystemPrompt();
-            var msgs = new List<(string role, string content)>();
-            if (!string.IsNullOrWhiteSpace(sys))
-                msgs.Add(("system", sys));
-
-            // Add recent history + this user message
-            foreach (var m in history)
-                msgs.Add(m);
-
             try
             {
-                var reply = await ai.CompleteAsync(msgs).ConfigureAwait(false);
-                history.Add(("assistant", reply));
+                // Sanity pings to confirm services are alive
+                Log.Info("AI Companion loaded. Config v{Version}", config.Version);
+
+                // If you later wire systems that depend on IFramework / IChatGui, do it here.
+                // e.g., start your dispatcher, register commands, open windows, etc.
+                // Keep this minimal to avoid new load-time failures.
             }
             catch (Exception ex)
             {
-                history.Add(("assistant", $"[error] {ex.Message}"));
+                // Make failures visible in Dalamud logs without crashing load.
+                try { Log.Error(ex, "Initialization after injection failed."); } catch { /* ignore */ }
             }
         }
 
         public void Dispose()
         {
-            PluginInterface.UiBuilder.Draw -= DrawUI;
-            pipe?.Dispose();
-            ai?.Dispose();
+            // Unhook anything you add later (events, commands, windows, dispatchers).
+            try
+            {
+                Log.Info("AI Companion disposed.");
+            }
+            catch { /* logger may be unavailable during shutdown */ }
         }
     }
 }

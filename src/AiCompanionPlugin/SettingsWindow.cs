@@ -11,15 +11,15 @@ namespace AiCompanionPlugin
 {
     /// <summary>
     /// Settings UI for AI Companion.
-    /// Uses Dalamud.Bindings.ImGui.ImGui with UTF-8 label caching and byte-buffer InputText overloads.
-    /// Also exposes Persona tab and Routing tab with send-to-/say and /party test buttons.
+    /// Persona tab + Routing tab (with Chat Posting mode selector).
+    /// Uses Dalamud.Bindings.ImGui.ImGui with UTF-8 label caching + byte-buffer inputs.
     /// </summary>
     public sealed class SettingsWindow
     {
         private readonly Configuration config;
         private readonly Action saveConfig;
 
-        // Optional hooks provided by Plugin for persona preview + sending tests
+        // Optional hooks provided by Plugin
         private readonly Func<string>? getPersonaPreview;
         private readonly Action<string>? sendTestSay;
         private readonly Action<string>? sendTestParty;
@@ -418,7 +418,6 @@ namespace AiCompanionPlugin
             Dalamud.Bindings.ImGui.ImGui.TextDisabled("Override (optional)");
             Dalamud.Bindings.ImGui.ImGui.Separator();
 
-            // Multi-line override input
             Utf8Sync(personaOverride, ref bufPersonaOv);
             var flags = Dalamud.Bindings.ImGui.ImGuiInputTextFlags.AllowTabInput;
             bool ovChanged = Dalamud.Bindings.ImGui.ImGui.InputTextMultiline(L("##persona_override"), bufPersonaOv.AsSpan(), new Vector2(-1, 180), flags);
@@ -443,7 +442,6 @@ namespace AiCompanionPlugin
             Dalamud.Bindings.ImGui.ImGui.Separator();
 
             string preview = getPersonaPreview?.Invoke() ?? "(no preview available)";
-            // Show up to ~1k chars
             if (preview.Length > 1000) preview = preview[..1000] + " …";
             Dalamud.Bindings.ImGui.ImGui.PushTextWrapPos(0);
             Dalamud.Bindings.ImGui.ImGui.TextUnformatted(preview);
@@ -452,6 +450,29 @@ namespace AiCompanionPlugin
 
         private void DrawRouting()
         {
+            Dalamud.Bindings.ImGui.ImGui.TextDisabled("Chat Posting Route");
+            Dalamud.Bindings.ImGui.ImGui.Separator();
+
+            // Radio buttons for ChatPostingMode (fully-qualified enum to avoid any shadowing)
+            var mode = config.ChatPostingMode;
+
+            if (Radio(L("Auto (ChatTwo IPC → Native fallback)"), mode == AiCompanionPlugin.ChatPostingMode.Auto))
+            {
+                config.ChatPostingMode = AiCompanionPlugin.ChatPostingMode.Auto;
+                saveConfig();
+            }
+            if (Radio(L("ChatTwo IPC (force)"), mode == AiCompanionPlugin.ChatPostingMode.ChatTwoIpc))
+            {
+                config.ChatPostingMode = AiCompanionPlugin.ChatPostingMode.ChatTwoIpc;
+                saveConfig();
+            }
+            if (Radio(L("Native (/say and /p)"), mode == AiCompanionPlugin.ChatPostingMode.Native))
+            {
+                config.ChatPostingMode = AiCompanionPlugin.ChatPostingMode.Native;
+                saveConfig();
+            }
+
+            Dalamud.Bindings.ImGui.ImGui.Spacing();
             Dalamud.Bindings.ImGui.ImGui.TextDisabled("Triggers & Whitelist");
             Dalamud.Bindings.ImGui.ImGui.Separator();
 
@@ -636,5 +657,8 @@ namespace AiCompanionPlugin
                 }
             }
         }
+
+        private static bool Radio(ReadOnlySpan<byte> label, bool active)
+            => Dalamud.Bindings.ImGui.ImGui.RadioButton(label, active);
     }
 }

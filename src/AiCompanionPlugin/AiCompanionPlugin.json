@@ -2,19 +2,19 @@
   "Author": "Nunubu Nubu",
   "Name": "AI Companion",
   "InternalName": "AiCompanionPlugin",
-  "AssemblyVersion": "5.0.0.3",
-  "Description": "A void-touched bardic companion for Dalamud. Chat window, persona.txt, routing triggers with whitelist, native/IPC chat send, and chronicles — tuned for Dalamud 13 + .NET 9.",
+  "AssemblyVersion": "5.0.0.4",
+  "Description": "A void-touched bardic companion for Dalamud. Chat window, persona.txt, routing triggers with whitelist, ChatTwo IPC/native posting, and chronicles — tuned for Dalamud 13 + .NET 9.",
   "Punchline": "Song for a soul! Any song for the price of one’s soul—bargain deal!",
   "ApplicableVersion": "any",
   "DalamudApiLevel": 13,
   "RepoUrl": "https://github.com/insanityiskey85-create/NunuAICompanion5",
   "LoadPriority": 0,
-  "Tags": ["ai", "chat", "companion", "utility"],
-  "CategoryTags": ["utility", "chat"],
+  "Tags": [ "ai", "chat", "companion", "utility" ],
+  "CategoryTags": [ "utility", "chat" ],
   "IconUrl": "https://raw.githubusercontent.com/insanityiskey85-create/NunuAICompanion5/main/assets/icon.png",
   "ImageUrls": [
     "https://raw.githubusercontent.com/insanityiskey85-create/NunuAICompanion5/main/assets/preview-1.png",
     "https://raw.githubusercontent.com/insanityiskey85-create/NunuAICompanion5/main/assets/preview-2.png"
   ],
-  "Changelog": "v5.0.0.3 — Persona tab/preview, routing UI with /say & /party tests, ChatWindow post-to-channel toggles, IPC/native sending, API 13 ready."
+  "Changelog": "v5.0.0.4 — Real backend requests, ChatTwo IPC default with switchable routing, persona editor, slash commands, listener fixes."
 }

@@ -1,14 +1,16 @@
 ﻿// SPDX-License-Identifier: MIT
 // AiCompanionPlugin - Plugin.cs
 //
-// Wires UI + persona + chat routing + native/IPC sends.
-// Adds slash commands:
+// Wires UI + persona + chat routing + real AI backend call.
+// Slash commands:
 //   /nunuwin  -> toggle Chat window
 //   /nunucfg  -> open Settings window
 
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using Dalamud.IoC;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
@@ -38,11 +40,16 @@ namespace AiCompanionPlugin
         private NativeChatPipe? nativePipe;
         private ChatTwoBridge? chatTwo;
         private IChatRouter? router;
+        private AiClient? ai;
 
-        // memory history for ChatWindow
+        // history for ChatWindow
         private readonly List<(string role, string content)> history = new();
+        private readonly object historyLock = new();
 
         private bool commandsRegistered;
+
+        // Cancellation for in-flight calls
+        private CancellationTokenSource? callCts;
 
         public Plugin(IDalamudPluginInterface pi)
         {
@@ -53,7 +60,7 @@ namespace AiCompanionPlugin
             persona = new PersonaManager(config);
 
             // seed
-            history.Add(("system", "Nunu tunes her voidbound lute. WAH!"));
+            AppendHistory(("system", "Nunu tunes her voidbound lute. WAH!"));
 
             // UI: wire persona preview + test send delegates
             settingsWindow = new SettingsWindow(
@@ -64,14 +71,14 @@ namespace AiCompanionPlugin
                 sendTestParty: (s) => TrySendChannel(XivChatType.Party, s)
             );
 
-            // pass a tiny shim to ChatWindow to send directly to channels
+            // pass a shim to ChatWindow to send to channels
             chatWindow = new ChatWindow(
                 config,
                 GetHistory,
                 SendUserMessage,
                 trySendChannel: (type, text) =>
                 {
-                    // 1 => Say, 2 => Party (avoid bringing in XivChatType into ChatWindow signature)
+                    // 1 => Say, 2 => Party
                     return type switch
                     {
                         2 => TrySendChannel(XivChatType.Party, text),
@@ -79,15 +86,13 @@ namespace AiCompanionPlugin
                     };
                 });
 
-            // hook UI
+            // hook UI (event subscriptions return void; do not assign)
             pi.UiBuilder.Draw += DrawUI;
             pi.UiBuilder.OpenConfigUi += OpenConfigUi;
 
             TryOpenOnLoad();
             TryLogInfo("Constructed. Systems will finalize on first draw.");
         }
-
-        private bool TrySendChannel(XivChatType party, object text) => throw new NotImplementedException();
 
         private void LateInit()
         {
@@ -97,6 +102,17 @@ namespace AiCompanionPlugin
                 chatTwo = new ChatTwoBridge(PluginInterface, Log);
             if (router == null && ChatGui != null)
                 router = new IChatRouter(config, ChatGui, Log, OnIncomingTrigger);
+            if (ai == null)
+            {
+                try
+                {
+                    ai = new AiClient(config, Log);
+                }
+                catch (Exception ex)
+                {
+                    TryLogError(ex, "Failed to initialize AI client. Check BackendBaseUrl.");
+                }
+            }
         }
 
         private void DrawUI()
@@ -125,8 +141,16 @@ namespace AiCompanionPlugin
         {
             if (commandsRegistered || CommandManager is null) return;
 
-            CommandManager.AddHandler("/nunuwin", new CommandInfo(OnCmdNunuWin) { HelpMessage = "Toggle AI Companion chat window." });
-            CommandManager.AddHandler("/nunucfg", new CommandInfo(OnCmdNunuCfg) { HelpMessage = "Open AI Companion settings window." });
+            // AddHandler returns void; do not assign to a variable
+            CommandManager.AddHandler("/nunuwin", new CommandInfo(OnCmdNunuWin)
+            {
+                HelpMessage = "Toggle AI Companion chat window."
+            });
+
+            CommandManager.AddHandler("/nunucfg", new CommandInfo(OnCmdNunuCfg)
+            {
+                HelpMessage = "Open AI Companion settings window."
+            });
 
             commandsRegistered = true;
             TryLogInfo("Commands: /nunuwin, /nunucfg");
@@ -145,26 +169,67 @@ namespace AiCompanionPlugin
         }
 
         // ChatWindow plumbing
-        private IReadOnlyList<(string role, string content)> GetHistory() => history;
+        private IReadOnlyList<(string role, string content)> GetHistory()
+        {
+            lock (historyLock)
+                return history.ToArray(); // snapshot
+        }
+
+        private void AppendHistory((string role, string content) item)
+        {
+            lock (historyLock) history.Add(item);
+        }
 
         private void SendUserMessage(string message)
         {
-            history.Add(("user", message));
+            AppendHistory(("user", message));
             TryLogInfo($"User -> {message}");
 
-            // Build prompt with persona (effective system prompt)
-            var systemPrompt = persona.GetSystemPrompt();
-            // TODO: Call your AI client with (systemPrompt, history, message) and capture reply.
+            // cancel previous call if any
+            callCts?.Cancel();
+            callCts = new CancellationTokenSource();
 
-            // Placeholder reply for flow proof:
-            var reply = $"♪ {config.AiDisplayName}: {message}";
-            history.Add(("assistant", reply));
+            _ = StartCompletionAsync(message, callCts.Token);
+        }
+
+        private async Task StartCompletionAsync(string message, CancellationToken ct)
+        {
+            string replyText;
+            try
+            {
+                if (ai == null)
+                {
+                    AppendHistory(("assistant", "(AI backend not initialized — check BackendBaseUrl)"));
+                    return;
+                }
+
+                var sys = persona.GetSystemPrompt();
+                var prior = GetHistory();
+                replyText = await ai.GetChatCompletionAsync(sys, prior, message, ct).ConfigureAwait(false);
+                if (string.IsNullOrWhiteSpace(replyText))
+                    replyText = "(no content)";
+            }
+            catch (OperationCanceledException)
+            {
+                TryLogInfo("AI call canceled.");
+                return;
+            }
+            catch (Exception ex)
+            {
+                var msg = $"AI error: {ex.Message}";
+                TryLogError(ex, "Completion failed");
+                ChatGui?.PrintError($"[AI Companion] {msg}");
+                AppendHistory(("assistant", msg));
+                return;
+            }
+
+            AppendHistory(("assistant", replyText));
 
             // Also post assistant reply to chat if toggled
             if (config.PostAssistantToSay)
-                TrySendChannel(XivChatType.Say, reply);
+                TrySendChannel(XivChatType.Say, replyText);
             if (config.PostAssistantToParty)
-                TrySendChannel(XivChatType.Party, reply);
+                TrySendChannel(XivChatType.Party, replyText);
         }
 
         // Incoming chat trigger -> send to model, send a response to chat
@@ -172,29 +237,73 @@ namespace AiCompanionPlugin
         {
             TryLogInfo($"Trigger from [{from}] via {sourceType}: {payload}");
 
-            // TODO: Use AI client; placeholder uses persona name
-            var who = string.IsNullOrWhiteSpace(config.AiDisplayName) ? "Nunu" : config.AiDisplayName;
-            var reply = $"{who}: {payload} — WAH~";
+            // Route to AI using the payload as message
+            callCts?.Cancel();
+            callCts = new CancellationTokenSource();
+            _ = StartTriggeredReplyAsync(payload, sourceType, callCts.Token);
+        }
 
-            // Always reply into the same channel when triggered
-            if (!TrySendChannel(sourceType, reply))
-                ChatGui?.Print($"[AI Companion] {reply}");
+        private async Task StartTriggeredReplyAsync(string input, XivChatType target, CancellationToken ct)
+        {
+            string replyText;
+            try
+            {
+                if (ai == null)
+                {
+                    ChatGui?.PrintError("[AI Companion] AI backend not initialized — check BackendBaseUrl");
+                    return;
+                }
 
-            // Mirror into UI history too
-            history.Add(("assistant", reply));
+                var sys = persona.GetSystemPrompt();
+                var prior = GetHistory();
+                replyText = await ai.GetChatCompletionAsync(sys, prior, input, ct).ConfigureAwait(false);
+                if (string.IsNullOrWhiteSpace(replyText))
+                    replyText = "(no content)";
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                TryLogError(ex, "Triggered reply failed");
+                ChatGui?.PrintError($"[AI Companion] AI error: {ex.Message}");
+                return;
+            }
+
+            // Post to same channel as trigger
+            if (!TrySendChannel(target, replyText))
+                ChatGui?.Print($"[AI Companion] {replyText}");
+
+            AppendHistory(("assistant", replyText));
         }
 
         internal bool TrySendChannel(XivChatType type, string text)
         {
-            var sent = false;
+            // Route selection based on config.ChatPostingMode
+            bool sent = false;
 
-            if (type == XivChatType.Party)
+            switch (config.ChatPostingMode)
             {
-                sent = chatTwo?.TrySendParty(text) == true || nativePipe?.TrySendParty(text) == true;
-            }
-            else // treat say/shout/yell as say
-            {
-                sent = chatTwo?.TrySendSay(text) == true || nativePipe?.TrySendSay(text) == true;
+                case ChatPostingMode.ChatTwoIpc:
+                    sent = (type == XivChatType.Party)
+                        ? chatTwo?.TrySendParty(text) == true
+                        : chatTwo?.TrySendSay(text) == true;
+                    break;
+
+                case ChatPostingMode.Native:
+                    sent = (type == XivChatType.Party)
+                        ? nativePipe?.TrySendParty(text) == true
+                        : nativePipe?.TrySendSay(text) == true;
+                    break;
+
+                case ChatPostingMode.Auto:
+                default:
+                    if (type == XivChatType.Party)
+                        sent = (chatTwo?.TrySendParty(text) == true) || (nativePipe?.TrySendParty(text) == true);
+                    else
+                        sent = (chatTwo?.TrySendSay(text) == true) || (nativePipe?.TrySendSay(text) == true);
+                    break;
             }
 
             return sent;
@@ -216,9 +325,11 @@ namespace AiCompanionPlugin
                 PluginInterface.UiBuilder.Draw -= DrawUI;
                 PluginInterface.UiBuilder.OpenConfigUi -= OpenConfigUi;
                 router?.Dispose();
+                ai?.Dispose();
 
                 if (commandsRegistered && CommandManager is not null)
                 {
+                    // RemoveHandler returns void; do not assign
                     CommandManager.RemoveHandler("/nunuwin");
                     CommandManager.RemoveHandler("/nunucfg");
                 }

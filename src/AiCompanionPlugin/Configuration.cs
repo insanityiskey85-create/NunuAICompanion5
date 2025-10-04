@@ -10,6 +10,13 @@ using Dalamud.Plugin;
 
 namespace AiCompanionPlugin
 {
+    public enum ChatPostingMode
+    {
+        Auto = 0,       // Try ChatTwo IPC, then fall back to Native
+        ChatTwoIpc = 1, // Force ChatTwo IPC; if it fails, do not fall back
+        Native = 2      // Force native /say and /p via ICommandManager
+    }
+
     [Serializable]
     public sealed class Configuration : IPluginConfiguration
     {
@@ -64,6 +71,9 @@ namespace AiCompanionPlugin
         // --- ChatWindow behavior ---
         public bool PostAssistantToSay { get; set; } = false;
         public bool PostAssistantToParty { get; set; } = false;
+
+        // --- Chat posting route ---
+        public ChatPostingMode ChatPostingMode { get; set; } = ChatPostingMode.ChatTwoIpc;
 
         [NonSerialized] private IDalamudPluginInterface? pluginInterface;
 

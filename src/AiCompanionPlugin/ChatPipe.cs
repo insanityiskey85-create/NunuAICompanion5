@@ -5,6 +5,7 @@
 
 #nullable enable
 using System;
+using Dalamud.Game.Text;
 using Dalamud.Plugin.Services;
 
 namespace AiCompanionPlugin
@@ -45,5 +46,6 @@ namespace AiCompanionPlugin
         public void SendRaw(string line) => dispatcher.EnqueueRaw(line ?? string.Empty);
 
         public void Dispose() => dispatcher.Dispose();
+        internal void EnqueueUserPromptFromChat(string payload, XivChatType say) => throw new NotImplementedException();
     }
 }

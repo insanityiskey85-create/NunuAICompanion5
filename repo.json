@@ -4,13 +4,13 @@
     "Name": "AI Companion",
     "InternalName": "AiCompanionPlugin",
     "Punchline": "Song for a soul! Hauntingly helpful chat and chronicles.",
-    "Description": "A void-touched bardic companion for Dalamud. Chat window, persona.txt, routing triggers with whitelist, ChatTwo IPC/native posting, chronicles, and an OpenAI-compatible backend (Ollama friendly). Built for Dalamud 13 + .NET 9.",
-    "AssemblyVersion": "5.0.0.5",
-    "TestingAssemblyVersion": "5.0.0.5",
+    "Description": "A void-touched bardic companion for Dalamud. Chat window, persona.txt, trigger routing with whitelist, ChatTwo IPC/native posting, chronicles, and an OpenAI-compatible backend (Ollama friendly). Built for Dalamud 13 + .NET 9.",
+    "AssemblyVersion": "5.0.0.6",
+    "TestingAssemblyVersion": "5.0.0.6",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 13,
     "RepoUrl": "https://github.com/insanityiskey85-create/NunuAICompanion5",
-    "IconUrl": "https://raw.githubusercontent.com/insanityiskey85-create/NunuAICompanion5/main/assets/icon.png",
+    "IconUrl": "https://raw.githubusercontent.com/insanityiskey85-create/NunuAICompanion5/master/WOW.png",
     "ImageUrls": [
       "https://raw.githubusercontent.com/insanityiskey85-create/NunuAICompanion5/main/assets/preview-1.png",
       "https://raw.githubusercontent.com/insanityiskey85-create/NunuAICompanion5/main/assets/preview-2.png"
@@ -18,12 +18,12 @@
     "CategoryTags": ["utility", "chat"],
     "Tags": ["ai", "chat", "companion", "utility"],
     "LoadPriority": 0,
-    "Changelog": "v5.0.0.5 — HTTPS localhost support with optional insecure TLS for dev, AiClient name-shadow fix, party/say listeners aligned, ChatTwo IPC routing selectable, /nunuwin & /nunucfg, persona.txt tab.",
+    "Changelog": "v5.0.0.6 — In-game commands to set Base URL/Model/TLS (/nunuurl, /nunumodel, /nunutls), save/reload (/nunusave, /nunureload), HTTPS localhost support, AiClient fixes, say/party listeners stabilized, ChatTwo routing toggle.",
     "IsHide": false,
     "IsTestingExclusive": false,
     "AcceptsFeedback": true,
-    "DownloadLinkInstall": "https://github.com/insanityiskey85-create/NunuAICompanion5/releases/download/v5.0.0.5/AiCompanionPlugin-v5.0.0.5.zip",
-    "DownloadLinkUpdate":  "https://github.com/insanityiskey85-create/NunuAICompanion5/releases/download/v5.0.0.5/AiCompanionPlugin-v5.0.0.5.zip",
-    "DownloadLinkTesting": "https://github.com/insanityiskey85-create/NunuAICompanion5/releases/download/v5.0.0.5/AiCompanionPlugin-v5.0.0.5.zip"
+    "DownloadLinkInstall": "https://github.com/insanityiskey85-create/NunuAICompanion5/releases/download/v5.0.0.6/AiCompanionPlugin-v5.0.0.6.zip",
+    "DownloadLinkUpdate":  "https://github.com/insanityiskey85-create/NunuAICompanion5/releases/download/v5.0.0.6/AiCompanionPlugin-v5.0.0.6.zip",
+    "DownloadLinkTesting": "https://github.com/insanityiskey85-create/NunuAICompanion5/releases/download/v5.0.0.6/AiCompanionPlugin-v5.0.0.6.zip"
   }
 ]

@@ -2,7 +2,7 @@
   "Author": "Nunubu Nubu",
   "Name": "AI Companion",
   "InternalName": "AiCompanionPlugin",
-  "AssemblyVersion": "5.0.0.5",
+  "AssemblyVersion": "5.0.0.6",
   "Description": "A void-touched bard for Dalamud: chat window, persona.txt, trigger routing with whitelist, ChatTwo IPC/native posting, chronicles, and an OpenAI-compatible backend (works great with Ollama). Tuned for Dalamud 13 + .NET 9.",
   "Punchline": "Any song for the price of one’s soul—bargain deal!",
   "ApplicableVersion": "any",
@@ -11,10 +11,10 @@
   "LoadPriority": 0,
   "Tags": [ "ai", "chat", "companion", "utility" ],
   "CategoryTags": [ "utility", "chat" ],
-  "IconUrl": "https://raw.githubusercontent.com/insanityiskey85-create/NunuAICompanion5/main/assets/icon.png",
+  "IconUrl": "https://raw.githubusercontent.com/insanityiskey85-create/NunuAICompanion5/master/WOW.png",
   "ImageUrls": [
     "https://raw.githubusercontent.com/insanityiskey85-create/NunuAICompanion5/main/assets/preview-1.png",
     "https://raw.githubusercontent.com/insanityiskey85-create/NunuAICompanion5/main/assets/preview-2.png"
   ],
-  "Changelog": "v5.0.0.5 — HTTPS localhost support (AllowInsecureTls), AiClient cleanup, listeners stabilized, ChatTwo routing toggle, persona editor, slash commands."
+  "Changelog": "v5.0.0.6 — Slash commands for Base URL/Model/TLS, fast save/reload, HTTPS localhost support, AiClient cleanup, stabilized listeners, selectable ChatTwo routing."
 }

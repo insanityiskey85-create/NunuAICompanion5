@@ -12,9 +12,9 @@ namespace AiCompanionPlugin
 {
     public enum ChatPostingMode
     {
-        Auto = 0,       // Try ChatTwo IPC, then fall back to Native
-        ChatTwoIpc = 1, // Force ChatTwo IPC; if it fails, do not fall back
-        Native = 2      // Force native /say and /p via ICommandManager
+        Auto = 0,
+        ChatTwoIpc = 1,
+        Native = 2
     }
 
     [Serializable]
@@ -30,11 +30,15 @@ namespace AiCompanionPlugin
 
         // --- Backend ---
         public string ApiKey { get; set; } = "";
-        public string BackendBaseUrl { get; set; } = "";
+        public string BackendBaseUrl { get; set; } = "";   // e.g. https://127.0.0.1:3001/
         public string Model { get; set; } = "gpt-4o-mini";
         public double Temperature { get; set; } = 0.7;
         public int MaxTokens { get; set; } = 0; // 0 = auto
         public int RequestTimeoutSeconds { get; set; } = 60;
+
+        // NEW: allow self-signed/dev certs (local HTTPS)
+        public bool AllowInsecureTls { get; set; } = false;
+
         public int MaxHistoryMessages { get; set; } = 20;
 
         // --- Memory / Chronicle ---
@@ -83,10 +87,7 @@ namespace AiCompanionPlugin
             EnsureDataDirs();
         }
 
-        public void Save()
-        {
-            pluginInterface?.SavePluginConfig(this);
-        }
+        public void Save() => pluginInterface?.SavePluginConfig(this);
 
         public string GetAbsolutePath(string relative)
         {

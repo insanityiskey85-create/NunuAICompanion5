@@ -2,13 +2,15 @@
 // AiCompanionPlugin - AiClient.cs
 //
 // Minimal OpenAI-compatible client (non-streaming).
-// Uses Configuration.BackendBaseUrl, ApiKey, Model, Temperature, MaxTokens, RequestTimeoutSeconds.
+// Honors Configuration.AllowInsecureTls for self-signed localhost HTTPS.
 
 #nullable enable
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -18,11 +20,12 @@ using Dalamud.Plugin.Services;
 
 namespace AiCompanionPlugin
 {
-    internal sealed class AiClient : IDisposable
+    public sealed class AiClient : IDisposable
     {
         private readonly Configuration config;
         private readonly IPluginLog? log;
         private readonly HttpClient http;
+        private readonly HttpMessageHandler handler;
         private readonly JsonSerializerOptions jsonOptions;
 
         public AiClient(Configuration config, IPluginLog? log)
@@ -30,18 +33,28 @@ namespace AiCompanionPlugin
             this.config = config ?? throw new ArgumentNullException(nameof(config));
             this.log = log;
 
-            // Normalize base URL
             var baseUrl = (config.BackendBaseUrl ?? string.Empty).Trim();
             if (string.IsNullOrWhiteSpace(baseUrl))
                 throw new InvalidOperationException("BackendBaseUrl is not set.");
 
-            // We'll POST to {base}/v1/chat/completions if caller gave us just the base.
-            // If they already gave the full path, we use it as absolute on send.
-            // So we set BaseAddress to baseUrl with trailing slash for relative URIs.
             if (!baseUrl.EndsWith("/"))
                 baseUrl += "/";
 
-            this.http = new HttpClient
+            // TLS handler: optionally allow self-signed (dev)
+            if (config.AllowInsecureTls)
+            {
+                var h = new HttpClientHandler
+                {
+                    ServerCertificateCustomValidationCallback = InsecureCertOk
+                };
+                handler = h;
+            }
+            else
+            {
+                handler = new HttpClientHandler(); // default validation
+            }
+
+            http = new HttpClient(handler)
             {
                 BaseAddress = new Uri(baseUrl),
                 Timeout = TimeSpan.FromSeconds(Math.Clamp(config.RequestTimeoutSeconds <= 0 ? 60 : config.RequestTimeoutSeconds, 5, 600))
@@ -53,7 +66,6 @@ namespace AiCompanionPlugin
                 http.DefaultRequestHeaders.Add("Authorization", $"Bearer {config.ApiKey}");
             }
 
-            // Some OpenAI-compatible servers require this header to switch schemas
             http.DefaultRequestHeaders.Remove("Accept");
             http.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/json");
 
@@ -62,6 +74,14 @@ namespace AiCompanionPlugin
                 PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
                 DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
             };
+
+            log?.Info($"[AI] HttpClient ready. Base={http.BaseAddress} InsecureTLS={config.AllowInsecureTls}");
+        }
+
+        private static bool InsecureCertOk(HttpRequestMessage _, X509Certificate2? __, X509Chain? ___, SslPolicyErrors errors)
+        {
+            // Accept any cert when opted-in (DEV ONLY!)
+            return true;
         }
 
         public async Task<string> GetChatCompletionAsync(
@@ -70,19 +90,20 @@ namespace AiCompanionPlugin
             string userMessage,
             CancellationToken ct)
         {
-            // Build messages
             var messages = new List<ChatMessage>(capacity: 32);
             if (!string.IsNullOrWhiteSpace(systemPrompt))
                 messages.Add(new ChatMessage("system", systemPrompt));
 
-            // Keep last N from history (only user/assistant)
             int keep = Math.Max(0, config.MaxHistoryMessages);
             var historyPairs = prior
                 .Where(p => p.role is "user" or "assistant")
                 .TakeLast(keep);
-            NewMethod(messages, historyPairs);
+            foreach (var (role, content) in historyPairs)
+            {
+                if (!string.IsNullOrWhiteSpace(content))
+                    messages.Add(new ChatMessage(role, content));
+            }
 
-            // Current user
             messages.Add(new ChatMessage("user", userMessage ?? string.Empty));
 
             var req = new ChatRequest
@@ -95,11 +116,11 @@ namespace AiCompanionPlugin
 
             var endpoint = ResolveEndpoint(config.BackendBaseUrl);
             var payload = JsonSerializer.Serialize(req, jsonOptions);
-            var content = new StringContent(payload, Encoding.UTF8, "application/json");
+            var httpContent = new StringContent(payload, Encoding.UTF8, "application/json");
 
             log?.Info($"[AI] POST {endpoint} (model={req.Model}, temp={req.Temperature}, max_tokens={(req.MaxTokens?.ToString() ?? "auto")})");
 
-            using var resp = await http.PostAsync(endpoint, content, ct).ConfigureAwait(false);
+            using var resp = await http.PostAsync(endpoint, httpContent, ct).ConfigureAwait(false);
             var body = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
 
             if (!resp.IsSuccessStatusCode)
@@ -111,7 +132,7 @@ namespace AiCompanionPlugin
                     if (err?.Error?.Message is { } msg && msg.Length > 0)
                         reason = msg;
                 }
-                catch { /* ignore parse error */ }
+                catch { }
 
                 throw new InvalidOperationException($"AI server returned {(int)resp.StatusCode}: {reason}");
             }
@@ -124,10 +145,7 @@ namespace AiCompanionPlugin
                 if (!string.IsNullOrWhiteSpace(text))
                     return text!;
             }
-            catch
-            {
-                // ignore and try legacy below
-            }
+            catch { }
 
             // Legacy completion (choices[0].text])
             try
@@ -139,18 +157,8 @@ namespace AiCompanionPlugin
             }
             catch { }
 
-            // Unknown payload shape
             log?.Warning("[AI] Unknown response payload, returning empty content.");
             return string.Empty;
-        }
-
-        private static void NewMethod(List<ChatMessage> messages, IEnumerable<(string role, string content)> historyPairs)
-        {
-            foreach (var (role, content) in historyPairs)
-            {
-                if (!string.IsNullOrWhiteSpace(content))
-                    messages.Add(new ChatMessage(role, content));
-            }
         }
 
         private static string ResolveEndpoint(string? baseUrl)
@@ -159,17 +167,16 @@ namespace AiCompanionPlugin
                 return "v1/chat/completions";
 
             var trimmed = baseUrl.Trim();
-            // If it's already a full /v1/chat/completions (absolute), call absolute
             if (trimmed.EndsWith("/v1/chat/completions", StringComparison.OrdinalIgnoreCase))
                 return trimmed;
 
-            // Otherwise treat as base; we set BaseAddress, so return relative path:
             return "v1/chat/completions";
         }
 
         public void Dispose()
         {
             http.Dispose();
+            handler.Dispose();
         }
 
         // --------- JSON models ---------
